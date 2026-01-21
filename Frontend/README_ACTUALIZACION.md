@@ -1,12 +1,34 @@
 # 🚀 Reporte de Actualizaciones - Tu Mercado SENA
-**Fecha:** 17 de Enero, 2026
-**Versión de Mejora:** 1.3.0
+**Fecha:** 21 de Enero, 2026
+**Versión de Mejora:** 1.4.0
 
 Este documento detalla todas las modificaciones, correcciones de errores y optimizaciones realizadas recientemente en el ecosistema de **Tu Mercado SENA** (Frontend PHP y Backend Laravel).
 
 ---
 
-## �️ 5. Avatar Visible en Todas las Páginas (NUEVO - v1.3.0)
+## 📱 6. Barra de Navegación Inferior Estilo App (NUEVO - v1.4.0)
+Se implementó una barra de navegación fija en la parte inferior para dispositivos móviles, mejorando significativamente la usabilidad y proporcionando una experiencia tipo App nativa.
+
+### Características:
+- **Navegación Intuitiva (5 Iconos):**
+    - 🏠 **Inicio:** Acceso al menú principal.
+    - 📦 **Productos:** Acceso a "Mis Productos".
+    - ➕ **Publicar (CENTRAL):** Botón destacado para la acción principal del sistema.
+    - ❤️ **Favoritos:** Acceso rápido a vendedores guardados.
+    - 👤 **Perfil:** Acceso al perfil con el avatar del usuario integrado.
+- **Diseño Ergonómico:** 
+    - El botón **"Publicar"** se posicionó en el centro exacto con un diseño circular destacado.
+- **Optimización de Pantalla:**
+    - El Header se simplifica en móviles mostrando solo el logo.
+    - El Nav Desktop y el Footer se ocultan automáticamente en móviles (< 768px).
+    - Se agregó `padding-bottom` dinámico para evitar que la barra cubra el contenido.
+- **Implementación Limpia:**
+    - Componente modular en `includes/bottom_nav.php`.
+    - Detección automática de la página activa para resaltado visual.
+
+---
+
+## ️ 5. Avatar Visible en Todas las Páginas (v1.3.0)
 Se implementó la visualización consistente de la foto de perfil del usuario en el header/navegación de todas las páginas de la aplicación.
 
 ### Problema Detectado:
@@ -43,7 +65,7 @@ Se implementó la visualización consistente de la foto de perfil del usuario en
 
 ---
 
-## �🔐 1. Flujo de Registro y Seguridad
+## 🔐 1. Flujo de Registro y Seguridad
 Se optimizó el proceso de creación de cuentas para garantizar una experiencia de usuario fluida y sin errores técnicos.
 
 *   **Redirección Post-Verificación:** Se modificó `verificar_registro.php` para que, tras una validación exitosa del código de 6 dígitos, el usuario sea redirigido a `login.php?registered=1`.
@@ -84,10 +106,9 @@ Se corrigió el error que impedía visualizar las fotos de perfil en el Home e I
 ---
 
 ## 📂 Archivos Principales Modificados
-
 | Capa | Archivos Clave |
 | :--- | :--- |
-| **Frontend** | `config.php`, `index.php`, `script.js`, `perfil.php`, `verificar_registro.php`, `login.php`, `publicar.php`, `mis_productos.php`, `favoritos.php`, `producto.php`, `chat.php`, `editar_producto.php`, `perfil_publico.php`, `styles.css` |
+| **Frontend** | `config.php`, `index.php`, `script.js`, `perfil.php`, `verificar_registro.php`, `login.php`, `publicar.php`, `mis_productos.php`, `favoritos.php`, `producto.php`, `chat.php`, `editar_producto.php`, `perfil_publico.php`, `styles.css`, `includes/bottom_nav.php` |
 | **Backend (API)** | `AuthController.php`, `RegistroService.php`, `AuthService.php`, `Cuenta.php` |
 | **Database** | `cleanup.php`, `get_chats_notificaciones.php` |
 
