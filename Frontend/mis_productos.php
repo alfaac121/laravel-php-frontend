@@ -6,6 +6,8 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Usuario autenticado
+
 $user = getCurrentUser();
 $conn = getDBConnection();
 
@@ -89,12 +91,16 @@ $conn->close();
                     <a href="index.php" class="<?= $current_page == 'index.php' ? 'active' : '' ?>">Menu Principal</a>
                     <a href="publicar.php">Publicar Producto</a>
                     <a href="favoritos.php">Favoritos</a>
-
+                    <div class="notification-badge">
+                        <i class="ri-chat-3-line notification-icon" id="notificationIcon" title="Chats y notificaciones"></i>
+                        <span class="notification-count hidden" id="notificationCount">0</span>
+                        <div class="chats-list" id="chatsList"></div>
+                    </div>
                     <a href="perfil.php" class="perfil-link">
                          <div class="user-avatar-container">
                      <img src="<?php echo getAvatarUrl($user['imagen']); ?>"
                     alt="Avatar de <?php echo htmlspecialchars($user['nickname']); ?>"
-                    class="avatar-header">
+                    class="avatar-header" id="headerAvatar">
 
                  <span class="user-name-footer"><?php echo htmlspecialchars($user['nickname']); ?></span>
              </div>
@@ -132,8 +138,8 @@ $conn->close();
          alt="<?php echo htmlspecialchars($producto['nombre']); ?>"
          class="product-image">
 <?php else: ?>
-    <img src="images/placeholder.jpg"
-         alt="Sin imagen"
+    <img src="https://picsum.photos/seed/<?php echo $producto['id']; ?>/400/300"
+         alt="<?php echo htmlspecialchars($producto['nombre']); ?>"
          class="product-image">
 <?php endif; ?>
 

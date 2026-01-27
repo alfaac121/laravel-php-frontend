@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once 'config.php';
 
 
@@ -9,65 +8,16 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Usuario ya está autenticado via sesión PHP
+
 $conn = getDBConnection();
 $user = getCurrentUser();
 
-// Filtros
+// Filtros (se pasan a JavaScript para la API)
 $categoria_id = isset($_GET['categoria']) ? (int)$_GET['categoria'] : 0;
 $busqueda = isset($_GET['busqueda']) ? sanitize($_GET['busqueda']) : '';
 
-// Query de productos
-$query = "SELECT 
-    p.*, 
-    u.nickname AS vendedor_nombre,
-    u.imagen AS vendedor_avatar,
-    sc.nombre AS subcategoria_nombre, 
-    c.nombre AS categoria_nombre, 
-    i.nombre AS integridad_nombre,
-    f.imagen AS producto_imagen
-FROM productos p
-INNER JOIN usuarios u 
-    ON p.vendedor_id = u.id
-INNER JOIN subcategorias sc 
-    ON p.subcategoria_id = sc.id
-INNER JOIN categorias c 
-    ON sc.categoria_id = c.id
-INNER JOIN integridad i 
-    ON p.integridad_id = i.id
-LEFT JOIN fotos f 
-    ON f.producto_id = p.id
-WHERE p.estado_id = 1 AND u.estado_id = 1";
-
-
-
-$params = [];
-$types = '';
-
-if ($categoria_id > 0) {
-    $query .= " AND c.id = ?";
-    $params[] = $categoria_id;
-    $types .= 'i';
-}
-
-if (!empty($busqueda)) {
-    $query .= " AND (p.nombre LIKE ? OR p.descripcion LIKE ?)";
-    $search_term = "%$busqueda%";
-    $params[] = $search_term;
-    $params[] = $search_term;
-    $types .= 'ss';
-}
-
-$query .= " GROUP BY p.id ORDER BY p.fecha_registro DESC LIMIT 50";
-
-
-$stmt = $conn->prepare($query);
-if (!empty($params)) {
-    $stmt->bind_param($types, ...$params);
-}
-$stmt->execute();
-$productos_result = $stmt->get_result();
-
-// Obtener categorías para el filtro (después de usar la conexión)
+// Obtener categorías para el filtro
 $categorias_query = "SELECT * FROM categorias ORDER BY nombre";
 $categorias_result = $conn->query($categorias_query);
 ?>
@@ -95,14 +45,14 @@ $categorias_result = $conn->query($categorias_query);
                     <a href="favoritos.php">Favoritos</a>
                     <a href="publicar.php">Publicar Producto</a>
                     <div class="notification-badge">
-                        <span class="notification-icon" id="notificationIcon" title="Chats y notificaciones">💬</span>
+                        <i class="ri-chat-3-line notification-icon" id="notificationIcon" title="Chats y notificaciones"></i>
                         <span class="notification-count hidden" id="notificationCount">0</span>
                         <div class="chats-list" id="chatsList"></div>
                     </div>
                     <a href="perfil.php" class="perfil-link">
                         <div class="user-avatar-container">
                             <img src="<?= getAvatarUrl($user['imagen']); ?>" 
-                                 class="avatar-header" alt="Mi Avatar">
+                                 class="avatar-header" id="headerAvatar" alt="Mi Avatar">
                             <span class="user-name-footer"><?php echo htmlspecialchars($user['nickname']); ?></span>
                         </div>
                     </a>
@@ -116,13 +66,13 @@ $categorias_result = $conn->query($categorias_query);
     <main class="main">
         <div class="container">
             <div class="filters-section">
-                <form method="GET" action="index.php" class="filters-form">
+                <div class="filters-form" id="filtersForm">
                     <div class="filter-group">
-                        <input type="text" name="busqueda" placeholder="Buscar productos..." 
+                        <input type="text" id="searchInput" placeholder="Buscar productos..." 
                                value="<?php echo htmlspecialchars($busqueda); ?>" class="search-input">
                     </div>
                     <div class="filter-group">
-                        <select name="categoria" class="select-input">
+                        <select id="categoryFilter" class="select-input">
                             <option value="0">Categorías</option>
                             <?php while ($cat = $categorias_result->fetch_assoc()): ?>
                                 <option value="<?php echo $cat['id']; ?>" 
@@ -132,53 +82,66 @@ $categorias_result = $conn->query($categorias_query);
                             <?php endwhile; ?>
                         </select>
                     </div>
-                    <button type="submit" class="btn-secondary">Buscar</button>
-                    <?php if ($categoria_id > 0 || !empty($busqueda)): ?>
-                        <a href="index.php" class="btn-link">Limpiar filtros</a>
-                    <?php endif; ?>
-                </form>
+                    <div class="filter-group">
+                        <select id="sortFilter" class="select-input">
+                            <option value="newest">Más recientes</option>
+                            <option value="oldest">Más antiguos</option>
+                            <option value="price_low">Menor precio</option>
+                            <option value="price_high">Mayor precio</option>
+                            <option value="available">Más disponibles</option>
+                        </select>
+                    </div>
+                    <button type="button" id="clearFiltersBtn" class="btn-link" style="display: none;">Limpiar filtros</button>
+                </div>
             </div>
 
-            <div class="products-grid">
-                <?php if ($productos_result->num_rows > 0): ?>
-                    <?php while ($producto = $productos_result->fetch_assoc()): ?>
-                        <div class="product-card">
-                            <a href="producto.php?id=<?php echo $producto['id']; ?>">
-  <?php if (!empty($producto['producto_imagen'])): ?>
-    <img src="uploads/<?php echo htmlspecialchars($producto['producto_imagen']); ?>"
-         alt="<?php echo htmlspecialchars($producto['nombre']); ?>"
-         class="product-image">
-<?php else: ?>
-    <img src="images/placeholder.jpg"
-         alt="Sin imagen"
-         class="product-image">
-<?php endif; ?>
-
-                                <div class="product-info">
-                                    <h3 class="product-name"><?php echo htmlspecialchars($producto['nombre']); ?></h3>
-                                    <p class="product-price"><?php echo formatPrice($producto['precio']); ?></p>
-                                    <p class="product-seller">Vendedor: <?php echo htmlspecialchars($producto['vendedor_nombre']); ?></p>
-                                    <p class="product-category"><?php echo htmlspecialchars($producto['categoria_nombre']); ?> - 
-                                       <?php echo htmlspecialchars($producto['subcategoria_nombre']); ?></p>
-                                    <span class="product-condition 
-                                    <?php echo (strtolower($producto['integridad_nombre']) == 'nuevo') ? 'condition-nuevo' : ''; ?>
-                                    <?php echo (strtolower($producto['integridad_nombre']) == 'usado') ? 'condition-usado' : ''; ?>">
-                                    <?php echo htmlspecialchars($producto['integridad_nombre']); ?>
-                                    </span>
-                                    <span class="product-stock">Disponibles: <?php echo $producto['disponibles']; ?></span>
-                                </div>
-                            </a>
-                        </div>
-                    <?php endwhile; ?>
-                <?php else: ?>
-                    <div class="no-products">
-                        <p>No se encontraron productos. ¡Sé el primero en publicar!</p>
-                        <?php if ($user): ?>
-                            <a href="publicar.php" class="btn-primary">Publicar Producto</a>
-                        <?php endif; ?>
+            <!-- Contenedor de productos con Infinite Scroll -->
+            <div class="products-grid" id="productsGrid">
+                <!-- Los productos se cargarán dinámicamente via JavaScript -->
+            </div>
+            
+            <!-- Skeleton Loaders (se muestran mientras carga) -->
+            <div class="products-grid skeleton-grid" id="skeletonGrid">
+                <?php for ($i = 0; $i < 8; $i++): ?>
+                <div class="product-card skeleton-card">
+                    <div class="skeleton skeleton-image"></div>
+                    <div class="skeleton-info">
+                        <div class="skeleton skeleton-title"></div>
+                        <div class="skeleton skeleton-price"></div>
+                        <div class="skeleton skeleton-text"></div>
+                        <div class="skeleton skeleton-text-short"></div>
                     </div>
+                </div>
+                <?php endfor; ?>
+            </div>
+            
+            <!-- Indicador de carga para infinite scroll -->
+            <div class="loading-more" id="loadingMore" style="display: none;">
+                <div class="loading-spinner"></div>
+                <span>Cargando más productos...</span>
+            </div>
+            
+            <!-- Mensaje cuando no hay más productos -->
+            <div class="no-more-products" id="noMoreProducts" style="display: none;">
+                <p>✨ Has visto todos los productos disponibles</p>
+            </div>
+            
+            <!-- Mensaje cuando no hay productos -->
+            <div class="no-products" id="noProducts" style="display: none;">
+                <p>No se encontraron productos. ¡Sé el primero en publicar!</p>
+                <?php if ($user): ?>
+                    <a href="publicar.php" class="btn-primary">Publicar Producto</a>
                 <?php endif; ?>
             </div>
+            
+            <!-- Pasar filtros actuales a JavaScript -->
+            <script>
+                window.productFilters = {
+                    categoria: <?php echo json_encode($categoria_id); ?>,
+                    busqueda: <?php echo json_encode($busqueda); ?>,
+                    orden: 'newest'
+                };
+            </script>
         </div>
     </main>
 

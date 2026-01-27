@@ -1,6 +1,5 @@
 <?php
 require_once 'config.php';
-require_once 'api/api_client.php';
 
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
@@ -9,18 +8,29 @@ if ($id <= 0) {
     exit;
 }
 
-// Obtener información del usuario desde la API
-$response = apiGetPerfilPublico($id);
-if (!$response['success']) {
+// Obtener información del usuario desde la base de datos
+$conn = getDBConnection();
+$stmt = $conn->prepare("
+    SELECT u.id, u.nickname, u.descripcion, u.link, u.imagen
+    FROM usuarios u
+    WHERE u.id = ? AND u.estado_id = 1
+    LIMIT 1
+");
+$stmt->bind_param("i", $id);
+$stmt->execute();
+$result = $stmt->get_result();
+$usuario = $result->fetch_assoc();
+$stmt->close();
+
+if (!$usuario) {
+    $conn->close();
     header('Location: index.php');
     exit;
 }
 
-$usuario = $response['data']['data'];
 $user = isLoggedIn() ? getCurrentUser() : null;
 
-// Obtener productos del vendedor (Usando DB por ahora)
-$conn = getDBConnection();
+// Obtener productos del vendedor
 $stmt = $conn->prepare("
     SELECT p.*, sc.nombre as subcategoria_nombre, c.nombre as categoria_nombre
     FROM productos p
@@ -40,6 +50,8 @@ if ($user) {
 }
 
 $avatar = getAvatarUrl($usuario['imagen']);
+
+$conn->close();
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -148,12 +160,36 @@ $avatar = getAvatarUrl($usuario['imagen']);
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
 
+        .back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--color-primary);
+            text-decoration: none;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding: 10px 20px;
+            background: var(--color-bg);
+            border-radius: 30px;
+            box-shadow: var(--shadow);
+            transition: all 0.2s;
+        }
+
+        .back-button:hover {
+            transform: translateX(-5px);
+            box-shadow: var(--shadow-hover);
+        }
+
         @media (max-width: 768px) {
             .profile-header {
                 padding: 40px 0;
             }
             .profile-card {
                 padding: 30px 20px;
+                margin-bottom: 100px;
+            }
+            .profile-content {
+                padding-bottom: 80px;
             }
         }
     </style>
@@ -170,13 +206,19 @@ $avatar = getAvatarUrl($usuario['imagen']);
                 </h1>
                 <nav class="nav nav-desktop">
                     <a href="index.php">Inicio</a>
+                    <a href="mis_productos.php">Mis Productos</a>
                     <a href="favoritos.php">Favoritos</a>
                     <?php if ($user): ?>
+                    <div class="notification-badge">
+                        <i class="ri-chat-3-line notification-icon" id="notificationIcon" title="Chats y notificaciones"></i>
+                        <span class="notification-count hidden" id="notificationCount">0</span>
+                        <div class="chats-list" id="chatsList"></div>
+                    </div>
                     <a href="perfil.php" class="perfil-link">
                         <div class="user-avatar-container">
                              <img src="<?php echo getAvatarUrl($user['imagen']); ?>"
                             alt="Avatar de <?php echo htmlspecialchars($user['nickname']); ?>"
-                            class="avatar-header">
+                            class="avatar-header" id="headerAvatar">
                             <span class="user-name-footer"><?php echo htmlspecialchars($user['nickname']); ?></span>
                         </div>
                     </a>
@@ -187,12 +229,12 @@ $avatar = getAvatarUrl($usuario['imagen']);
             </div>
         </div>
     </header>
-    
-    <?php if ($user): ?>
-<?php endif; ?>
 
     <main class="main">
         <div class="profile-content">
+            <a href="javascript:history.back()" class="back-button">
+                ← Volver
+            </a>
             <div class="profile-card">
                 <img src="<?php echo htmlspecialchars($avatar); ?>"
                      alt="Avatar de <?php echo htmlspecialchars($usuario['nickname']); ?>"
@@ -204,20 +246,21 @@ $avatar = getAvatarUrl($usuario['imagen']);
                     <?php echo $usuario['descripcion'] ? nl2br(htmlspecialchars($usuario['descripcion'])) : 'Este vendedor no ha agregado una descripción todavía.'; ?>
                 </p>
 
-                <?php if (!empty($usuario['link'])): ?>
-                    <a href="<?php echo htmlspecialchars($usuario['link']); ?>" target="_blank" class="profile-link-btn">
-                        🔗 Enlace externo / Red social
-                    </a>
+                <?php if ($user && $user['id'] != $usuario['id']): ?>
+                    <button type="button" 
+                            class="btn-fav-large <?php echo $isFavorite ? 'active' : ''; ?>"
+                            data-vendedor-id="<?php echo $usuario['id']; ?>"
+                            onclick="toggleFavorito(this)">
+                        <i class="fav-icon <?php echo $isFavorite ? 'ri-heart-3-fill' : 'ri-heart-3-line'; ?>"></i>
+                        <span class="fav-text"><?php echo $isFavorite ? 'En mis Favoritos' : 'Añadir a Favoritos'; ?></span>
+                    </button>
                 <?php endif; ?>
 
-                <div class="profile-actions">
-                    <?php if ($user && $user['id'] != $id): ?>
-                        <a href="favoritos.php?vendedor_id=<?php echo $id; ?>" 
-                           class="btn-fav-large <?php echo $isFavorite ? 'active' : ''; ?>">
-                            <?php echo $isFavorite ? '❤️ En mis Favoritos' : '🤍 Añadir a Favoritos'; ?>
-                        </a>
-                    <?php endif; ?>
-                </div>
+                <?php if (!empty($usuario['link'])): ?>
+                    <a href="<?php echo htmlspecialchars($usuario['link']); ?>" target="_blank" class="profile-link-btn">
+                        <i class="ri-links-line"></i> Enlace externo / Red social
+                    </a>
+                <?php endif; ?>
             </div>
 
             <div class="seller-products">
@@ -261,6 +304,6 @@ $avatar = getAvatarUrl($usuario['imagen']);
     </footer>
 
     <script src="script.js"></script>
+
 </body>
 </html>
-

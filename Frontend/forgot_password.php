@@ -1,34 +1,30 @@
 <?php
 require_once 'config.php';
-require_once 'api/api_client.php';
 forceLightTheme();
 
 $msg = '';
 $error = '';
-$step = 1; // 1: ingresar correo, 2: ingresar código, 3: nueva contraseña
+$step = 1; // 1: ingresar correo, 2: nueva contraseña
 
 // Verificar si hay un proceso de recuperación en curso
 if (isset($_SESSION['recuperar_cuenta_id'])) {
-    if (isset($_SESSION['recuperar_clave_verificada']) && $_SESSION['recuperar_clave_verificada']) {
-        $step = 3;
-    } else {
-        $step = 2;
-    }
+    $step = 2;
 }
 
 // Cancelar proceso
 if (isset($_GET['cancelar'])) {
     unset($_SESSION['recuperar_cuenta_id']);
     unset($_SESSION['recuperar_email']);
-    unset($_SESSION['recuperar_clave_verificada']);
     header("Location: forgot_password.php");
     exit();
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // PASO 1: Validar correo y enviar código
-    if (isset($_POST['email']) && !isset($_POST['clave']) && !isset($_POST['password'])) {
+    $conn = getDBConnection();
+    
+    // PASO 1: Validar correo
+    if (isset($_POST['email']) && !isset($_POST['password'])) {
         $email = trim($_POST['email']);
         
         if (empty($email)) {
@@ -36,92 +32,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $error = "Correo inválido";
         } else {
-            $response = apiValidarCorreo($email);
+            // Buscar cuenta por email
+            $stmt = $conn->prepare("SELECT id FROM cuentas WHERE email = ?");
+            $stmt->bind_param("s", $email);
+            $stmt->execute();
+            $result = $stmt->get_result();
             
-            if ($response['success'] && isset($response['data']['cuenta_id'])) {
-                $_SESSION['recuperar_cuenta_id'] = $response['data']['cuenta_id'];
+            if ($result->num_rows > 0) {
+                $cuenta = $result->fetch_assoc();
+                $_SESSION['recuperar_cuenta_id'] = $cuenta['id'];
                 $_SESSION['recuperar_email'] = $email;
-                $_SESSION['recuperar_expira'] = $response['data']['expira_en'] ?? '';
                 $step = 2;
-                $msg = "Se ha enviado un código de verificación a tu correo";
+                $msg = "Correo verificado. Ahora ingresa tu nueva contraseña.";
             } else {
-                if (isset($response['data']['message'])) {
-                    $error = $response['data']['message'];
-                } else {
-                    $error = "Error al enviar el código. Verifica tu correo.";
-                }
+                $error = "No existe una cuenta con ese correo.";
             }
+            $stmt->close();
         }
     }
     
-    // PASO 2: Validar el código
-    elseif (isset($_POST['clave']) && !isset($_POST['password'])) {
-        $clave = strtoupper(trim($_POST['clave']));
-        $cuentaId = $_SESSION['recuperar_cuenta_id'] ?? null;
-        
-        if (!$cuentaId) {
-            $error = "Sesión expirada. Inicia el proceso de nuevo.";
-            $step = 1;
-        } elseif (empty($clave) || strlen($clave) !== 6) {
-            $error = "El código debe tener 6 caracteres";
-            $step = 2;
-        } else {
-            $response = apiValidarClaveRecuperacion($cuentaId, $clave);
-            
-            if ($response['success'] && isset($response['data']['clave_verificada']) && $response['data']['clave_verificada']) {
-                $_SESSION['recuperar_clave_verificada'] = true;
-                $step = 3;
-                $msg = "Código verificado correctamente. Ingresa tu nueva contraseña.";
-            } else {
-                if (isset($response['data']['message'])) {
-                    $error = $response['data']['message'];
-                } else {
-                    $error = "Código inválido o expirado";
-                }
-                $step = 2;
-            }
-        }
-    }
-    
-    // PASO 3: Cambiar contraseña
+    // PASO 2: Cambiar contraseña
     elseif (isset($_POST['password'])) {
         $password = $_POST['password'];
         $passwordConfirm = $_POST['password_confirm'];
         $cuentaId = $_SESSION['recuperar_cuenta_id'] ?? null;
         
-        if (!$cuentaId || !isset($_SESSION['recuperar_clave_verificada'])) {
+        if (!$cuentaId) {
             $error = "Sesión expirada. Inicia el proceso de nuevo.";
             $step = 1;
         } elseif (empty($password) || strlen($password) < 8) {
             $error = "La contraseña debe tener al menos 8 caracteres";
-            $step = 3;
+            $step = 2;
         } elseif ($password !== $passwordConfirm) {
             $error = "Las contraseñas no coinciden";
-            $step = 3;
+            $step = 2;
         } else {
-            $response = apiReestablecerPassword($cuentaId, $password, $passwordConfirm);
+            // Actualizar contraseña
+            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+            $stmt = $conn->prepare("UPDATE cuentas SET password = ? WHERE id = ?");
+            $stmt->bind_param("si", $passwordHash, $cuentaId);
             
-            if ($response['success']) {
+            if ($stmt->execute()) {
                 // Limpiar sesión de recuperación
                 unset($_SESSION['recuperar_cuenta_id']);
                 unset($_SESSION['recuperar_email']);
-                unset($_SESSION['recuperar_clave_verificada']);
-                unset($_SESSION['recuperar_expira']);
+                
+                $conn->close();
                 
                 // Redirigir al login con mensaje
-                $_SESSION['login_message'] = "Contraseña restablecida correctamente. Ya puedes iniciar sesión.";
-                header("Location: login.php");
+                header("Location: login.php?password_changed=1");
                 exit();
             } else {
-                if (isset($response['data']['message'])) {
-                    $error = $response['data']['message'];
-                } else {
-                    $error = "Error al restablecer la contraseña";
-                }
-                $step = 3;
+                $error = "Error al restablecer la contraseña";
+                $step = 2;
             }
+            $stmt->close();
         }
     }
+    
+    $conn->close();
 }
 ?>
 <!DOCTYPE html>
@@ -157,26 +126,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background: #28a745;
             color: white;
         }
-        .verification-code {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin: 20px 0;
-        }
-        .verification-code input {
-            width: 45px;
-            height: 55px;
-            text-align: center;
-            font-size: 22px;
-            font-weight: bold;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            text-transform: uppercase;
-        }
-        .verification-code input:focus {
-            border-color: var(--primary-color, #007bff);
-            outline: none;
-        }
     </style>
 </head>
 <body>
@@ -186,8 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <div class="step-indicator">
                 <div class="step <?php echo $step >= 1 ? ($step > 1 ? 'completed' : 'active') : ''; ?>">1</div>
-                <div class="step <?php echo $step >= 2 ? ($step > 2 ? 'completed' : 'active') : ''; ?>">2</div>
-                <div class="step <?php echo $step >= 3 ? 'active' : ''; ?>">3</div>
+                <div class="step <?php echo $step >= 2 ? 'active' : ''; ?>">2</div>
             </div>
 
             <?php if (!empty($msg)): ?>
@@ -202,91 +150,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <!-- PASO 1: Ingresar correo -->
             <form method="POST" action="forgot_password.php">
                 <p style="text-align: center; margin-bottom: 15px; color: #666;">
-                    Ingresa tu correo electrónico y te enviaremos un código de verificación.
+                    Ingresa tu correo electrónico para restablecer tu contraseña.
                 </p>
                 <div class="form-group">
                     <label for="email">Correo Electrónico</label>
                     <input id="email" type="email" name="email" placeholder="tu@soy.sena.edu.co" required>
                 </div>
-                <button type="submit" class="btn-primary">Enviar código</button>
+                <button type="submit" class="btn-primary">Verificar correo</button>
                 <p class="auth-link"><a href="login.php">← Volver al login</a></p>
             </form>
             
-            <?php elseif ($step === 2): ?>
-            <!-- PASO 2: Ingresar código -->
-            <form method="POST" action="forgot_password.php" id="codeForm">
-                <p style="text-align: center; margin-bottom: 15px; color: #666;">
-                    Ingresa el código de 6 caracteres enviado a:<br>
-                    <strong><?php echo htmlspecialchars($_SESSION['recuperar_email'] ?? ''); ?></strong>
-                </p>
-                
-                <div class="verification-code">
-                    <input type="text" maxlength="1" class="code-input" autofocus>
-                    <input type="text" maxlength="1" class="code-input">
-                    <input type="text" maxlength="1" class="code-input">
-                    <input type="text" maxlength="1" class="code-input">
-                    <input type="text" maxlength="1" class="code-input">
-                    <input type="text" maxlength="1" class="code-input">
-                </div>
-                
-                <input type="hidden" name="clave" id="claveInput">
-                
-                <button type="submit" class="btn-primary">Verificar código</button>
-                <p class="auth-link"><a href="forgot_password.php?cancelar=1">Cancelar</a></p>
-            </form>
-            
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const inputs = document.querySelectorAll('.code-input');
-                    const claveInput = document.getElementById('claveInput');
-                    const form = document.getElementById('codeForm');
-                    
-                    function updateHiddenInput() {
-                        let code = '';
-                        inputs.forEach(input => code += input.value.toUpperCase());
-                        claveInput.value = code;
-                    }
-                    
-                    inputs.forEach((input, index) => {
-                        input.addEventListener('input', function() {
-                            this.value = this.value.toUpperCase();
-                            updateHiddenInput();
-                            if (this.value && index < inputs.length - 1) {
-                                inputs[index + 1].focus();
-                            }
-                        });
-                        
-                        input.addEventListener('keydown', function(e) {
-                            if (e.key === 'Backspace' && !this.value && index > 0) {
-                                inputs[index - 1].focus();
-                            }
-                        });
-                        
-                        input.addEventListener('paste', function(e) {
-                            e.preventDefault();
-                            const pastedData = e.clipboardData.getData('text').toUpperCase().slice(0, 6);
-                            for (let i = 0; i < pastedData.length && i < inputs.length; i++) {
-                                inputs[i].value = pastedData[i];
-                            }
-                            updateHiddenInput();
-                        });
-                    });
-                    
-                    form.addEventListener('submit', function(e) {
-                        updateHiddenInput();
-                        if (claveInput.value.length !== 6) {
-                            e.preventDefault();
-                            alert('Por favor ingresa el código completo');
-                        }
-                    });
-                });
-            </script>
-            
             <?php else: ?>
-            <!-- PASO 3: Nueva contraseña -->
+            <!-- PASO 2: Nueva contraseña -->
             <form method="POST" action="forgot_password.php">
                 <p style="text-align: center; margin-bottom: 15px; color: #666;">
-                    Ingresa tu nueva contraseña
+                    Restableciendo contraseña para:<br>
+                    <strong><?php echo htmlspecialchars($_SESSION['recuperar_email'] ?? ''); ?></strong>
                 </p>
                 <div class="form-group">
                     <label for="password">Nueva Contraseña</label>
@@ -306,4 +185,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </body>
 </html>
-

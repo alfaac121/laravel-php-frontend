@@ -1,116 +1,48 @@
-# 🚀 Reporte de Actualizaciones - Tu Mercado SENA
+# 📋 Registro de Actualizaciones - Tu Mercado SENA
+
+## 26 de Enero, 2026 - Iconografía Profesional y Consistencia UI
+### Cambios realizados:
+- **Estandarización de Iconos:** Se reemplazaron todos los emojis por iconos profesionales de la biblioteca **Remix Icon** en toda la aplicación.
+- **Refactorización de JavaScript:** Se consolidaron todos los eventos `DOMContentLoaded` en un único bloque de inicialización en `script.js` para mejorar el rendimiento y evitar errores.
+- **Consistencia en Headers:** Se añadieron badges de notificación y enlaces de navegación faltantes en `mis_productos.php`, `favoritos.php`, `editar_producto.php` y `perfil_publico.php`.
+- **Mejora en Perfil:** Se añadió el ID `headerAvatar` a todas las imágenes de perfil del encabezado para permitir actualizaciones en tiempo real.
+- **Correcciones de Errores:** Se implementó la función `changeMainImage` para la galería de productos y se corrigieron variables de sesión inconsistentes.
+
+---
+
+# 🚀 Lo nuevo en Tu Mercado SENA antiguo
 **Fecha:** 21 de Enero, 2026
-**Versión de Mejora:** 1.4.0
+**Qué hay de nuevo:** Versión 1.4.0
 
-Este documento detalla todas las modificaciones, correcciones de errores y optimizaciones realizadas recientemente en el ecosistema de **Tu Mercado SENA** (Frontend PHP y Backend Laravel).
-
----
-
-## 📱 6. Barra de Navegación Inferior Estilo App (NUEVO - v1.4.0)
-Se implementó una barra de navegación fija en la parte inferior para dispositivos móviles, mejorando significativamente la usabilidad y proporcionando una experiencia tipo App nativa.
-
-### Características:
-- **Navegación Intuitiva (5 Iconos):**
-    - 🏠 **Inicio:** Acceso al menú principal.
-    - 📦 **Productos:** Acceso a "Mis Productos".
-    - ➕ **Publicar (CENTRAL):** Botón destacado para la acción principal del sistema.
-    - ❤️ **Favoritos:** Acceso rápido a vendedores guardados.
-    - 👤 **Perfil:** Acceso al perfil con el avatar del usuario integrado.
-- **Diseño Ergonómico:** 
-    - El botón **"Publicar"** se posicionó en el centro exacto con un diseño circular destacado.
-- **Optimización de Pantalla:**
-    - El Header se simplifica en móviles mostrando solo el logo.
-    - El Nav Desktop y el Footer se ocultan automáticamente en móviles (< 768px).
-    - Se agregó `padding-bottom` dinámico para evitar que la barra cubra el contenido.
-- **Implementación Limpia:**
-    - Componente modular en `includes/bottom_nav.php`.
-    - Detección automática de la página activa para resaltado visual.
+¡Hola! Aquí te contamos de forma sencilla qué cosas hemos mejorado y arreglado en la página para que sea más fácil de usar para todos.
 
 ---
 
-## ️ 5. Avatar Visible en Todas las Páginas (v1.3.0)
-Se implementó la visualización consistente de la foto de perfil del usuario en el header/navegación de todas las páginas de la aplicación.
+## 📱 1. Un nuevo menú para tu celular (v1.4.0)
+Ahora, cuando entres desde tu celular, verás una barra con iconos abajo, parecida a la de Instagram o WhatsApp. Esto hace que moverte por la página sea mucho más rápido.
 
-### Problema Detectado:
-- La foto de perfil solo aparecía en algunas páginas y usaba rutas inconsistentes.
-- Algunas páginas usaban `$user['imagen']` directamente sin la función `getAvatarUrl()`.
-- No existían estilos CSS unificados para el avatar en el header.
-
-### Solución Implementada:
-
-*   **Estandarización de Rutas:** Se actualizaron **8 archivos PHP** para usar la función `getAvatarUrl()`:
-    *   `index.php` ✅ (ya funcionaba)
-    *   `publicar.php` ✅ 
-    *   `mis_productos.php` ✅
-    *   `favoritos.php` ✅
-    *   `producto.php` ✅
-    *   `chat.php` ✅
-    *   `editar_producto.php` ✅
-    *   `perfil.php` ✅ (se agregó el avatar al header)
-    *   `perfil_publico.php` ✅
-
-*   **Clase CSS Unificada:** Se cambió la clase `user-avatar` a `avatar-header` en todas las páginas para mantener consistencia.
-
-*   **Nuevos Estilos CSS:** Se agregaron estilos al final de `styles.css`:
-    ```css
-    .user-avatar-container    /* Contenedor flex para avatar + nombre */
-    .avatar-header            /* Imagen circular 36x36px con borde y sombra */
-    .user-name-footer         /* Nombre del usuario junto al avatar */
-    .perfil-link              /* Enlace con hover effect */
-    ```
-
-*   **Diseño Responsivo:** En pantallas móviles (< 768px):
-    - El nombre del usuario se oculta para ahorrar espacio
-    - El avatar se reduce a 32x32px
+- **Todo a la mano:** Tienes iconos para ir al Inicio, ver tus Productos, ver tus Favoritos y entrar a tu Perfil.
+- **Botón de Publicar:** Pusimos el botón de **"+"** en todo el centro y más grande para que publicar tus productos sea lo primero que veas.
+- **Más espacio:** Quitamos cosas que estorbaban en la pantalla del celular para que puedas ver mejor las fotos de los productos.
+- **Tu foto siempre contigo:** En la esquina del menú ahora aparece tu foto de perfil para que sepas que estás en tu cuenta.
 
 ---
 
-## 🔐 1. Flujo de Registro y Seguridad
-Se optimizó el proceso de creación de cuentas para garantizar una experiencia de usuario fluida y sin errores técnicos.
-
-*   **Redirección Post-Verificación:** Se modificó `verificar_registro.php` para que, tras una validación exitosa del código de 6 dígitos, el usuario sea redirigido a `login.php?registered=1`.
-*   **Mensajes de Feedback:** Implementación de bloques dinámicos en `login.php` para mostrar mensajes de éxito tras completar el registro.
-*   **Control del Formulario:** Se eliminó el auto-envío del código de verificación al completar los 6 dígitos, permitiendo al usuario revisar el código antes de enviarlo manualmente.
-*   **Backend Robustness:**
-    *   Sincronización de llaves de respuesta API (`success` vs `status`) en `RegistroService.php`.
-    *   Manejo de "Graceful Registration": Ahora el sistema permite reintentar la verificación incluso si el registro se interrumpe, evitando el error de "Correo ya registrado".
-    *   Protección de Claims JWT: Se añadió verificación de nulidad en el modelo `Cuenta.php` para evitar errores 500 cuando el perfil aún no está vinculado.
-
-## 💬 2. Sistema de Chat y Notificaciones
-Se refinó la lógica de lectura y notificaciones para que sea precisa y en tiempo real.
-
-*   **Burbuja de Notificaciones:** Modificación en `get_chats_notificaciones.php` para que el contador de mensajes no leídos se base en las banderas `visto_comprador` / `visto_vendedor`.
-*   **Actualización Instantánea:**
-    *   Se integró `loadNotifications(true)` en las funciones de apertura del modal de chat en `script.js`.
-    *   El globo de notificaciones ahora desaparece o disminuye instantáneamente al abrir una conversación.
-*   **Marcar como Leído:** El backend ahora actualiza automáticamente el estado de "visto" al solicitar los mensajes de un chat específico.
-
-## 📸 3. Gestión de Imágenes de Perfil (Avatares)
-Se corrigió el error que impedía visualizar las fotos de perfil en el Home e Index.
-
-*   **Función Maestro `getAvatarUrl()`:** Creada en `config.php` para estandarizar la obtención de rutas de imágenes. Esta función maneja:
-    *   Nombres de archivos simples (ej: `avatar_123.jpg`).
-    *   Rutas completas (ej: `assets/images/avatars/avatar_123.jpg`).
-    *   Avatares por defecto si el archivo no existe o el campo está vacío.
-*   **Estandarización UI:** Actualización de las siguientes páginas para usar la nueva lógica de avatares:
-    *   `index.php` (Header)
-    *   `perfil.php` (Perfil de usuario)
-    *   `perfil_publico.php` (Vista de vendedor)
-    *   `chat.php` (Conversaciones)
-    *   `favoritos.php` (Vendedores favoritos)
-
-## 🛠️ 4. Mantenimiento de Base de Datos
-*   **Script de Limpieza:** Creación de `Backend/API_Laravel/cleanup.php` para truncar tablas y permitir pruebas limpias del flujo de registro, productos y chats.
-*   **Sincronización de Tiempo:** Ajuste de zonas horarias en `config.php` y la conexión MySQL para coincidir con la hora local de Bogotá (-05:00), asegurando que el "Tiempo Relativo" ("Hace 5 minutos") sea exacto.
+## ️ 2. Tu foto de perfil en todos lados (v1.3.0)
+Antes la foto de perfil se perdía en algunas páginas. Ahora ya la arreglamos para que aparezca arriba a la derecha en cualquier parte del sitio donde estés. Así la página se siente más personal.
 
 ---
 
-## 📂 Archivos Principales Modificados
-| Capa | Archivos Clave |
-| :--- | :--- |
-| **Frontend** | `config.php`, `index.php`, `script.js`, `perfil.php`, `verificar_registro.php`, `login.php`, `publicar.php`, `mis_productos.php`, `favoritos.php`, `producto.php`, `chat.php`, `editar_producto.php`, `perfil_publico.php`, `styles.css`, `includes/bottom_nav.php` |
-| **Backend (API)** | `AuthController.php`, `RegistroService.php`, `AuthService.php`, `Cuenta.php` |
-| **Database** | `cleanup.php`, `get_chats_notificaciones.php` |
+## � 3. Registro más fácil y seguro
+Arreglamos el proceso para crear una cuenta. Antes daba algunos errores o era confuso, pero ahora:
+- Al terminar de registrarte, te lleva directo a iniciar sesión y te avisa que ya estás listo.
+- El chat ahora te avisa mejor cuando tienes mensajes nuevos con un globito de notificación que sí se quita cuando lo lees.
+- Las horas de "hace 5 minutos" ahora sí coinciden con la hora de Colombia.
 
 ---
-**Desarrollado con 💚 por el equipo de Advanced Agentic Coding (Antigravity).**
+
+## 📂 ¿Qué archivos tocamos?
+Principalmente mejoramos los estilos visuales (`styles.css`), el menú nuevo (`includes/bottom_nav.php`) y las páginas donde ves los productos y el chat.
+
+---
+**Hecho con mucho cariño para la comunidad del SENA Salomia. 💚**

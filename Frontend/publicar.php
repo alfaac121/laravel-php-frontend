@@ -5,6 +5,9 @@ if (!isLoggedIn()) {
     header('Location: login.php');
     exit;
 }
+
+// Usuario ya está autenticado via sesión PHP
+
 $user = getCurrentUser();
 if ($user['estado_id'] != 1) {
     header("Location: bloqueado.php");
@@ -131,7 +134,7 @@ $conn->close();
                     <a href="mis_productos.php">Mis Productos</a>
                     <a href="favoritos.php">Favoritos</a>
                                      <div class="notification-badge">
-                        <span class="notification-icon" id="notificationIcon" title="Chats y notificaciones">💬</span>
+                        <i class="ri-chat-3-line notification-icon" id="notificationIcon" title="Chats y notificaciones"></i>
                         <span class="notification-count hidden" id="notificationCount">0</span>
                          <div class="chats-list" id="chatsList"></div>
              </div>

@@ -7,6 +7,8 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Usuario autenticado
+
 $user = getCurrentUser();
 $producto_id = isset($_GET['producto_id']) ? (int)$_GET['producto_id'] : 0;
 
@@ -69,13 +71,12 @@ $stmt->close();
 if (isset($_POST['mensaje_inicial']) && !empty(trim($_POST['mensaje_inicial']))) {
     $mensaje = sanitize($_POST['mensaje_inicial']);
     $es_comprador = 1;
-    $es_imagen = 0;
 
     $stmt = $conn->prepare("
-        INSERT INTO mensajes (es_comprador, chat_id, mensaje, es_imagen)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO mensajes (es_comprador, chat_id, mensaje)
+        VALUES (?, ?, ?)
     ");
-    $stmt->bind_param("iisi", $es_comprador, $chat_id, $mensaje, $es_imagen);
+    $stmt->bind_param("iis", $es_comprador, $chat_id, $mensaje);
     $stmt->execute();
     $stmt->close();
 }

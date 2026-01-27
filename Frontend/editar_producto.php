@@ -6,6 +6,8 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Usuario autenticado
+
 $user = getCurrentUser();
 $producto_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
@@ -194,11 +196,16 @@ $conn->close();
                     <a href="mis_productos.php">Mis Productos</a>
                     <a href="favoritos.php">Favoritos</a>
                     <a href="publicar.php">Publicar Producto</a>
+                    <div class="notification-badge">
+                        <i class="ri-chat-3-line notification-icon" id="notificationIcon" title="Chats y notificaciones"></i>
+                        <span class="notification-count hidden" id="notificationCount">0</span>
+                        <div class="chats-list" id="chatsList"></div>
+                    </div>
                    <a href="perfil.php" class="perfil-link">
                     <div class="user-avatar-container">
                         <img src="<?php echo getAvatarUrl($user['imagen']); ?>"
-                    alt="Avatar de <?php echo htmlspecialchars($user['nickname']); ?>"
-                    class="avatar-header">
+                     alt="Avatar de <?php echo htmlspecialchars($user['nickname']); ?>"
+                     class="avatar-header" id="headerAvatar">
                         <span class="user-name-footer"><?php echo htmlspecialchars($user['nickname']); ?></span>
                     </div>
                     </a>

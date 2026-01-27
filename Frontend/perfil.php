@@ -215,7 +215,7 @@ $conn->close();
                         Publicar Producto
                     </a>
                     <div class="notification-badge">
-                        <span class="notification-icon" id="notificationIcon" title="Chats y notificaciones">💬</span>
+                        <i class="ri-chat-3-line notification-icon" id="notificationIcon" title="Chats y notificaciones"></i>
                         <span class="notification-count hidden" id="notificationCount">0</span>
                         <div class="chats-list" id="chatsList"></div>
                     </div>
@@ -445,5 +445,3 @@ $conn->close();
     <script src="script.js"></script>
 </body>
 </html>
-
-

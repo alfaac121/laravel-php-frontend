@@ -8,6 +8,8 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Usuario autenticado
+
 if (!isset($_GET['id'])) {
     header('Location: index.php');
     exit;
@@ -43,7 +45,7 @@ if (!$producto) {
 }
 
 if (isset($_POST['agregar_favorito'])) {
-    $usuario_id = $_SESSION['id'];      // usuario logueado
+    $usuario_id = $_SESSION['usuario_id'];      // usuario logueado
     $producto_id = $_POST['producto_id']; // id del producto
 
     $query = "INSERT INTO favoritos (votante_id, votado_id) VALUES (?, ?)";
@@ -117,7 +119,7 @@ $conn->close();
                     <a href="publicar.php">Publicar Producto</a>
                     <a href="index.php">Volver</a>
                     <div class="notification-badge">
-                        <span class="notification-icon" id="notificationIcon" title="Chats y notificaciones">💬</span>
+                        <i class="ri-chat-3-line notification-icon" id="notificationIcon" title="Chats y notificaciones"></i>
                         <span class="notification-count hidden" id="notificationCount">0</span>
                         <div class="chats-list" id="chatsList"></div>
                     </div>
@@ -125,7 +127,7 @@ $conn->close();
                         <div class="user-avatar-container">
                              <img src="<?php echo getAvatarUrl($user['imagen']); ?>"
                              alt="Avatar de <?php echo htmlspecialchars($user['nickname']); ?>"
-                             class="avatar-header">
+                             class="avatar-header" id="headerAvatar">
                             <span class="user-name-footer"><?php echo htmlspecialchars($user['nickname']); ?></span>
                         </div>
                     </a>
@@ -154,14 +156,17 @@ $conn->close();
                     $stmt_fotos->close();
                     $conn->close();
 
-                    $principal = !empty($fotos) ? "uploads/" . $fotos[0] : "images/placeholder.jpg";
+                    // Si no hay fotos, usar placeholder de picsum
+                    $principal = !empty($fotos) 
+                        ? "uploads/" . $fotos[0] 
+                        : "https://picsum.photos/seed/{$producto_id}/600/450";
                     ?>
                     <div class="product-gallery">
                         <div class="main-image-container">
                             <img src="<?= htmlspecialchars($principal) ?>" 
                                  alt="<?= htmlspecialchars($producto['nombre']) ?>" 
                                  id="mainProductImage"
-                                 class="product-detail-image zoomable">
+                                 class="product-detail-image">
                         </div>
                         
                         <?php if (count($fotos) > 1): ?>
@@ -213,13 +218,17 @@ $conn->close();
                             </a>
                             
                         <?php else: ?>
-                           <?php if ($user['id'] != $producto['vendedor_id']): ?>
-<a href="favoritos.php?vendedor_id=<?php echo $producto['vendedor_id']; ?>" 
-   class="btn-favorite <?php echo $isFavorite ? 'active' : ''; ?>"
-   title="<?php echo $isFavorite ? 'Quitar de Favoritos' : 'Añadir a Favoritos'; ?>">
-   <?php echo $isFavorite ? '🤍 Favorito' : '❤️ Añadir a Favoritos'; ?>
-</a>
-<?php endif; ?>
+                        <?php if ($user['id'] != $producto['vendedor_id']): ?>
+                            <button type="button" 
+                                id="btnFavorito"
+                                data-vendedor-id="<?php echo $producto['vendedor_id']; ?>"
+                                class="btn-favorite <?php echo $isFavorite ? 'active' : ''; ?>"
+                                title="<?php echo $isFavorite ? 'Quitar de Favoritos' : 'Añadir a Favoritos'; ?>"
+                                onclick="toggleFavorito(this)">
+                                <i class="fav-icon <?php echo $isFavorite ? 'ri-heart-3-fill' : 'ri-heart-3-line'; ?>"></i>
+                                <span class="fav-text"><?php echo $isFavorite ? 'En Favoritos' : 'Añadir a Favoritos'; ?></span>
+                            </button>
+                        <?php endif; ?>
                             <?php if ($chat_existente): ?>
                                 <a href="chat.php?id=<?php echo $chat_existente['id']; ?>" class="btn-primary">Ver Conversación</a>
                             <?php else: ?>
@@ -239,6 +248,7 @@ $conn->close();
         </div>
     </footer>
     <script src="script.js"></script>
+
 </body>
 </html>
 

@@ -65,7 +65,7 @@ $stmt = $conn->prepare("
     VALUES (?, ?, ?, ?)
 ");
 // Quitamos 's' del bind_param y quitamos el parámetro de fecha
-$stmt->bind_param("iisi", $es_comprador_msg, $chat_id, $mensaje, $imagen); 
+$stmt->bind_param("iiss", $es_comprador_msg, $chat_id, $mensaje, $imagen); 
 
 if ($stmt->execute()) {
     $message_id = $conn->insert_id;

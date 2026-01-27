@@ -57,8 +57,9 @@ class ValidateJWTToken
             if (!$tokenActivo) {
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Sesión terminada. Inicie sesión nuevamente'
-                ]);
+                    'message' => 'Sesión terminada. Inicie sesión nuevamente',
+                    'session_replaced' => true
+                ], 401);
             }
 
             // OK - Permitir que continúe la petición

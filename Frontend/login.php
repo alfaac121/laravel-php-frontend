@@ -1,13 +1,12 @@
 <?php
 
 require_once 'config.php';
-require_once 'api/api_client.php';
 forceLightTheme();
 
 $error = '';
 
-// Si ya tiene sesión con token válido, redirigir
-if (hasValidToken()) {
+// Si ya tiene sesión, redirigir
+if (isLoggedIn()) {
     header("Location: index.php");
     exit();
 }
@@ -18,37 +17,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     if (!empty($email) && !empty($password)) {
         
-        // Llamar a la API de login
-        $response = apiLogin($email, $password);
+        $conn = getDBConnection();
         
-        if ($response['success'] && isset($response['data']['data'])) {
-            $data = $response['data']['data'];
-            $user = $data['user'];
-            $token = $data['token'];
-            $expiresIn = $data['expires_in'] ?? 86400;
-            
-            // Guardar token JWT
-            saveToken($token, $expiresIn);
-            
-            // Guardar datos del usuario en sesión
-            $_SESSION['usuario_id'] = $user['id'];
-            $_SESSION['usuario_nombre'] = $user['nickname'];
-            $_SESSION['usuario_rol'] = $user['rol_id'];
-            $_SESSION['usuario_imagen'] = $user['imagen'];
-            $_SESSION['cuenta_id'] = $user['cuenta_id'];
-            
-            header("Location: index.php");
-            exit();
-        } else {
-            // Manejar errores de la API
-            if (isset($response['data']['message'])) {
-                $error = $response['data']['message'];
-            } elseif (isset($response['data']['error'])) {
-                $error = $response['data']['error'];
+        // Buscar cuenta por email
+        $stmt = $conn->prepare("
+            SELECT c.id AS cuenta_id, c.password, c.email,
+                   u.id AS usuario_id, u.nickname, u.imagen, u.rol_id, u.estado_id
+            FROM cuentas c
+            INNER JOIN usuarios u ON u.cuenta_id = c.id
+            WHERE c.email = ?
+            LIMIT 1
+        ");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $user = $result->fetch_assoc();
+        $stmt->close();
+        
+        if ($user && password_verify($password, $user['password'])) {
+            // Verificar estado del usuario
+            if ($user['estado_id'] == 4) { // bloqueado
+                $error = 'Tu cuenta ha sido bloqueada. Contacta al administrador.';
+            } elseif ($user['estado_id'] == 3) { // eliminado
+                $error = 'Esta cuenta ya no existe.';
             } else {
-                $error = 'Error al iniciar sesión. Verifica tus credenciales.';
+                // Login exitoso - Guardar datos en sesión
+                $_SESSION['usuario_id'] = $user['usuario_id'];
+                $_SESSION['usuario_nombre'] = $user['nickname'];
+                $_SESSION['usuario_rol'] = $user['rol_id'];
+                $_SESSION['usuario_imagen'] = $user['imagen'];
+                $_SESSION['cuenta_id'] = $user['cuenta_id'];
+                
+                // Actualizar fecha_reciente
+                $stmtUpdate = $conn->prepare("UPDATE usuarios SET fecha_reciente = NOW() WHERE id = ?");
+                $stmtUpdate->bind_param("i", $user['usuario_id']);
+                $stmtUpdate->execute();
+                $stmtUpdate->close();
+                
+                $conn->close();
+                
+                header("Location: index.php");
+                exit();
             }
+        } else {
+            $error = 'Correo o contraseña incorrectos.';
         }
+        
+        $conn->close();
         
     } else {
         $error = 'Por favor completa todos los campos';
@@ -74,8 +89,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <h1 class="auth-title">
         Iniciar Sesión
             </h1>
+            <?php if (isset($_GET['session_expired'])): ?>
+                <div class="error-message">Tu sesión ha expirado. Por favor inicia sesión nuevamente.</div>
+            <?php endif; ?>
             <?php if (isset($_GET['registered'])): ?>
                 <div class="success-message">¡Registro completado! Ahora puedes iniciar sesión.</div>
+            <?php endif; ?>
+            <?php if (isset($_GET['password_changed'])): ?>
+                <div class="success-message">Contraseña cambiada correctamente. Ya puedes iniciar sesión.</div>
             <?php endif; ?>
             <?php if ($error): ?>
                 <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
@@ -98,4 +119,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </body>
 </html>
-

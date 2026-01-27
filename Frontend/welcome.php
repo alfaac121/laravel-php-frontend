@@ -10,15 +10,6 @@ if (isLoggedIn()) {
 // Forzar modo claro en welcome
 forceLightTheme();
 ?>
-<?php
-require_once 'config.php';
-
-// Si el usuario ya está logueado, redirigir al index
-if (isLoggedIn()) {
-    header('Location: index.php');
-    exit;
-}
-?>
 <!DOCTYPE html>
 <html lang="es">
 <head>

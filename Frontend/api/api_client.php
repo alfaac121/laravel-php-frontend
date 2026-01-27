@@ -73,10 +73,23 @@ function apiRequest($endpoint, $method = 'GET', $data = [], $token = null) {
     
     $decoded = json_decode($response, true);
     
+    // Detectar si la sesión fue reemplazada por otro login
+    $sessionReplaced = false;
+    if ($httpCode === 401 && isset($decoded['session_replaced']) && $decoded['session_replaced'] === true) {
+        $sessionReplaced = true;
+        // Limpiar la sesión local
+        clearToken();
+        if (isset($_SESSION['usuario_id'])) {
+            session_destroy();
+            session_start();
+        }
+    }
+    
     return [
         'success' => $httpCode >= 200 && $httpCode < 300,
         'data' => $decoded,
-        'http_code' => $httpCode
+        'http_code' => $httpCode,
+        'session_replaced' => $sessionReplaced
     ];
 }
 
@@ -116,6 +129,52 @@ function hasValidToken() {
 function clearToken() {
     unset($_SESSION['jwt_token']);
     unset($_SESSION['token_expires']);
+}
+
+/**
+ * Verifica si la sesión actual sigue siendo válida en el servidor
+ * Si la sesión fue reemplazada por otro login, limpia la sesión local y redirige
+ * 
+ * @param bool $redirectOnInvalid - Si es true, redirige al login automáticamente
+ * @return bool - true si la sesión es válida, false si no
+ */
+function checkSessionValid($redirectOnInvalid = true) {
+    $token = getToken();
+    
+    if (!$token) {
+        if ($redirectOnInvalid) {
+            header("Location: login.php?session_expired=1");
+            exit();
+        }
+        return false;
+    }
+    
+    // Hacer una petición al servidor para verificar el token
+    $response = apiGetMe();
+    
+    // Si la sesión fue reemplazada
+    if (isset($response['session_replaced']) && $response['session_replaced'] === true) {
+        if ($redirectOnInvalid) {
+            header("Location: login.php?session_replaced=1");
+            exit();
+        }
+        return false;
+    }
+    
+    // Si hay otro error de autenticación
+    if (!$response['success'] && $response['http_code'] === 401) {
+        clearToken();
+        session_destroy();
+        session_start();
+        
+        if ($redirectOnInvalid) {
+            header("Location: login.php?session_expired=1");
+            exit();
+        }
+        return false;
+    }
+    
+    return $response['success'];
 }
 
 // ============================================

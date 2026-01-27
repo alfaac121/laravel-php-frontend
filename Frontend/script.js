@@ -1,5 +1,72 @@
 // JavaScript para funcionalidades del marketplace
 
+// ==================== SISTEMA DE SONIDO DE NOTIFICACIÓN ====================
+const NotificationSound = {
+    audioContext: null,
+    enabled: true,
+
+    init() {
+        // Cargar preferencia guardada
+        const saved = localStorage.getItem('notificationSoundEnabled');
+        this.enabled = saved !== 'false';
+    },
+
+    toggle() {
+        this.enabled = !this.enabled;
+        localStorage.setItem('notificationSoundEnabled', this.enabled);
+        return this.enabled;
+    },
+
+    play() {
+        if (!this.enabled) return;
+
+        try {
+            // Crear AudioContext si no existe
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            const ctx = this.audioContext;
+            const now = ctx.currentTime;
+
+            // Crear oscilador para tono de notificación
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            // Tono tipo "mensaje" (dos notas cortas)
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(880, now); // La nota A5
+            oscillator.frequency.setValueAtTime(1100, now + 0.1); // Sube
+
+            // Volumen suave
+            gainNode.gain.setValueAtTime(0.3, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+            oscillator.start(now);
+            oscillator.stop(now + 0.3);
+
+        } catch (e) {
+            console.log('Audio no soportado:', e);
+        }
+    }
+};
+
+// Inicializar sistema de sonido
+NotificationSound.init();
+
+// Función global para reproducir sonido
+function playNotificationSound() {
+    NotificationSound.play();
+}
+
+// Función global para toggle
+function toggleNotificationSound() {
+    return NotificationSound.toggle();
+}
+
 // ==================== TEMA OSCURO/CLARO ====================
 function initTheme() {
     const pagesForceLight = ['welcome.php', 'login.php', 'register.php'];
@@ -13,6 +80,7 @@ function initTheme() {
 
     const savedTheme = localStorage.getItem("theme") || "light";
     document.documentElement.setAttribute("data-theme", savedTheme);
+    updateThemeIcon(savedTheme);
 }
 
 document.addEventListener('DOMContentLoaded', initTheme);
@@ -81,8 +149,56 @@ function toggleTheme() {
 function updateThemeIcon(theme) {
     const themeToggle = document.getElementById('themeToggle');
     if (themeToggle) {
-        themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+        themeToggle.innerHTML = theme === 'dark' ? '<i class="ri-sun-line"></i>' : '<i class="ri-moon-line"></i>';
     }
+}
+
+// ==================== FAVORITOS ====================
+function toggleFavorito(btn) {
+    const vendedorId = btn.getAttribute('data-vendedor-id');
+    const icon = btn.querySelector('.fav-icon');
+    const textSpan = btn.querySelector('.fav-text');
+
+    if (!vendedorId) return;
+
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+
+    const formData = new FormData();
+    formData.append('vendedor_id', vendedorId);
+
+    fetch('api/toggle_favorito.php', {
+        method: 'POST',
+        body: formData
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.is_favorite) {
+                    btn.classList.add('active');
+                    if (icon) {
+                        icon.className = 'fav-icon ri-heart-3-fill';
+                    }
+                    if (textSpan) textSpan.textContent = 'En Favoritos';
+                } else {
+                    btn.classList.remove('active');
+                    if (icon) {
+                        icon.className = 'fav-icon ri-heart-3-line';
+                    }
+                    if (textSpan) textSpan.textContent = 'Añadir a Favoritos';
+                }
+            } else {
+                alert('Error: ' + (data.error || 'No se pudo actualizar'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error de conexión');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        });
 }
 
 // ==================== CHAT EN TIEMPO REAL ====================
@@ -236,12 +352,21 @@ let currentChatModal = null;
 let lastNotificationCheck = Date.now();
 
 function initNotifications() {
-    // Cargar notificaciones al iniciar
-    loadNotifications();
+    // Marcar el tiempo de inicio de la sesión (para no mostrar notificaciones de mensajes antiguos)
+    window.sessionStartTime = Date.now();
+    window.isFirstNotificationLoad = true;
+
+    // Cargar notificaciones al iniciar (silencioso - no mostrar popups de mensajes existentes)
+    loadNotifications(true);
+
+    // Después de 2 segundos, empezar a escuchar nuevos mensajes reales
+    setTimeout(() => {
+        window.isFirstNotificationLoad = false;
+    }, 2000);
 
     // Polling cada 3 segundos para nuevas notificaciones
     notificationsPollingInterval = setInterval(() => {
-        loadNotifications(true); // true = silencioso (no mostrar notificaciones)
+        loadNotifications(false); // false = puede mostrar notificaciones de mensajes NUEVOS
     }, 3000);
 
     // Limpiar intervalo al salir
@@ -261,12 +386,15 @@ function loadNotifications(silent = false) {
 
                 // Actualizar lista de chats solo si está visible
                 const chatsList = document.getElementById('chatsList');
-                if (chatsList && (chatsList.classList.contains('active') || !silent)) {
+                if (chatsList && (chatsList.classList.contains('active') || silent)) {
                     updateChatsList(data.chats);
                 }
 
-                // Mostrar notificaciones de nuevos mensajes (solo si no es silencioso y no estamos en un modal de chat)
-                if (!silent && data.chats && !window.currentModalChatId) {
+                // Mostrar notificaciones SOLO si:
+                // 1. No es la primera carga
+                // 2. No estamos en un modal de chat
+                // 3. El parámetro silent es false (permitir notificaciones)
+                if (!silent && !window.isFirstNotificationLoad && data.chats && !window.currentModalChatId) {
                     checkNewMessages(data.chats);
                 }
             }
@@ -317,7 +445,11 @@ function updateChatsList(chats) {
 
 function checkNewMessages(chats) {
     const storedLastCheck = localStorage.getItem('lastNotificationCheck');
-    const lastCheckTime = storedLastCheck ? parseInt(storedLastCheck) : Date.now() - 60000; // 1 minuto atrás si es la primera vez
+    const lastCheckTime = storedLastCheck ? parseInt(storedLastCheck) : Date.now();
+
+    // Tiempo mínimo: el más reciente entre el último check y el inicio de la sesión
+    const sessionStart = window.sessionStartTime || Date.now();
+    const minimumTime = Math.max(lastCheckTime, sessionStart);
 
     let newMessagesFound = false;
 
@@ -329,8 +461,8 @@ function checkNewMessages(chats) {
                 const fecha = new Date(fechaStr.replace(' ', 'T'));
                 const lastMsgTime = fecha.getTime();
 
-                // Si el mensaje es nuevo (después de la última verificación)
-                if (lastMsgTime > lastCheckTime) {
+                // Si el mensaje es nuevo (después de la última verificación Y después del inicio de sesión)
+                if (lastMsgTime > minimumTime) {
                     newMessagesFound = true;
                     const messagePreview = chat.ultimo_mensaje.mensaje.length > 50
                         ? chat.ultimo_mensaje.mensaje.substring(0, 50) + '...'
@@ -351,10 +483,8 @@ function checkNewMessages(chats) {
         }
     });
 
-    // Actualizar último check solo si encontramos mensajes nuevos o es la primera vez
-    if (newMessagesFound || !storedLastCheck) {
-        localStorage.setItem('lastNotificationCheck', Date.now().toString());
-    }
+    // Actualizar último check
+    localStorage.setItem('lastNotificationCheck', Date.now().toString());
 }
 
 function escapeHtml(text) {
@@ -385,6 +515,9 @@ function showBrowserNotification(title, message, chatId) {
     `;
 
     document.body.appendChild(notification);
+
+    // 🔔 Reproducir sonido de notificación
+    playNotificationSound();
 
     // Auto-eliminar después de 5 segundos
     setTimeout(() => {
@@ -618,13 +751,13 @@ function scrollModalToBottom() {
 
 // ==================== INICIALIZACIÓN ====================
 document.addEventListener('DOMContentLoaded', function () {
-    // Inicializar tema
-    initTheme();
+    // El tema ya se inicializó arriba
+    // initTheme(); // Eliminado redundante
 
     // Inicializar menú hamburguesa
     initHamburgerMenu();
 
-    // Toggle de tema
+    // Alternar tema
     const themeToggle = document.getElementById('themeToggle');
     if (themeToggle) {
         themeToggle.addEventListener('click', toggleTheme);
@@ -632,6 +765,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Sistema de notificaciones
     initNotifications();
+
+    // Galería (si existe)
+    initProductGallery();
+
+    // Subida de imágenes y Zoom
+    initMultipleImagesUpload();
+    initImageZoom();
+
+    // Infinite Scroll (si aplica)
+    if (document.getElementById('productsGrid')) {
+        initInfiniteScroll();
+    }
 
     // Toggle lista de chats
     const notificationIcon = document.getElementById('notificationIcon');
@@ -784,6 +929,43 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    // --- LÓGICA DE AVATAR (Perfil) ---
+    const avatarEditButton = document.getElementById('avatarEditButton');
+    const avatarInputHidden = document.getElementById('avatarInputHidden');
+    const avatarUploadForm = document.getElementById('avatarUploadForm');
+    const avatarPhoto = document.getElementById('avatarPhoto');
+    const headerAvatar = document.getElementById('headerAvatar');
+    const deleteAvatarBtn = document.getElementById('deleteAvatarBtn');
+
+    if (avatarEditButton && avatarInputHidden && avatarUploadForm) {
+        avatarEditButton.addEventListener('click', () => {
+            avatarInputHidden.click();
+        });
+
+        avatarInputHidden.addEventListener('change', function () {
+            if (this.files && this.files.length > 0) {
+                const file = this.files[0];
+                const reader = new FileReader();
+
+                reader.onload = (e) => {
+                    if (avatarPhoto) avatarPhoto.src = e.target.result;
+                    if (headerAvatar) headerAvatar.src = e.target.result;
+                };
+
+                reader.readAsDataURL(file);
+                avatarUploadForm.submit();
+            }
+        });
+    }
+
+    if (deleteAvatarBtn) {
+        deleteAvatarBtn.addEventListener('click', () => {
+            if (confirm("¿Deseas eliminar tu foto de perfil?")) {
+                window.location.href = 'perfil.php?section=avatar&action=delete';
+            }
+        });
+    }
 });
 
 // Función auxiliar para obtener parámetros de URL
@@ -792,153 +974,9 @@ function getUrlParameter(name) {
     return urlParams.get(name);
 }
 
-document.getElementById("avatarInput").addEventListener("change", function () {
-    const file = this.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function (e) {
-        // Actualizar foto visible
-        document.getElementById("avatarPhoto").src = e.target.result;
-
-        // Actualizar foto del header
-        const headerAvatar = document.getElementById("headerAvatar");
-        if (headerAvatar) headerAvatar.src = e.target.result;
-    };
-
-    reader.readAsDataURL(file);
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-    // --- LÓGICA DE AVATAR PRINCIPAL ---
-
-
-    if (avatarEditButton && avatarInputHidden && avatarUploadForm) {
-        document.addEventListener('DOMContentLoaded', () => {
-
-            const avatarEditButton = document.getElementById('avatarEditButton'); // Botón lápiz
-            const avatarInputHidden = document.getElementById('avatarInputHidden'); // Input oculto
-            const avatarUploadForm = document.getElementById('avatarUploadForm'); // Formulario
-            const avatarPhoto = document.getElementById('avatarPhoto'); // Imagen en perfil
-            const headerAvatar = document.getElementById('headerAvatar'); // Imagen en header (opcional)
-            const deleteAvatarBtn = document.getElementById('deleteAvatarBtn'); // Botón de eliminar (opcional)
-
-            if (avatarEditButton && avatarInputHidden && avatarUploadForm) {
-                // Abrir selector al hacer clic en lápiz
-                avatarEditButton.addEventListener('click', () => {
-                    avatarInputHidden.click();
-                });
-
-                // Previsualizar y enviar automáticamente
-                avatarInputHidden.addEventListener('change', function () {
-                    if (this.files.length > 0) {
-                        const file = this.files[0];
-                        const reader = new FileReader();
-
-                        reader.onload = (e) => {
-                            // Actualizar avatar en perfil
-                            avatarPhoto.src = e.target.result;
-
-                            // Actualizar avatar en header si existe
-                            if (headerAvatar) headerAvatar.src = e.target.result;
-                        };
-
-                        reader.readAsDataURL(file);
-
-                        // Enviar formulario al servidor
-                        avatarUploadForm.submit();
-                    }
-                });
-            }
-
-            // Lógica para eliminar avatar
-            if (deleteAvatarBtn) {
-                deleteAvatarBtn.addEventListener('click', () => {
-                    if (confirm("¿Deseas eliminar tu foto de perfil?")) {
-                        window.location.href = 'perfil.php?section=avatar&action=delete';
-                    }
-                });
-            }
-
-        });
-    }
-});
-document.addEventListener('DOMContentLoaded', () => {
-    const avatarEditBtn = document.getElementById('avatarEditButton');
-    const avatarInput = document.getElementById('avatarInputHidden');
-    const avatarForm = document.getElementById('avatarUploadForm');
-    const avatarPhoto = document.getElementById('avatarPhoto');
-
-    // Clic en lápiz abre selector de archivos
-    avatarEditBtn.addEventListener('click', () => {
-        avatarInput.click();
-    });
-
-    // Cuando se selecciona un archivo, previsualiza y envía
-    avatarInput.addEventListener('change', () => {
-        if (avatarInput.files && avatarInput.files[0]) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                avatarPhoto.src = e.target.result; // Previsualización
-            };
-            reader.readAsDataURL(avatarInput.files[0]);
-
-            // Enviar formulario automáticamente
-            avatarForm.submit();
-        }
-    });
-});
-document.addEventListener('DOMContentLoaded', () => {
-    const toggleBtn = document.getElementById('toggleFavoriteBtn');
-
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', async () => {
-            const productId = toggleBtn.dataset.productId;
-            const isCurrentlyFavorite = toggleBtn.dataset.isFavorite === 'true';
-
-            const data = {
-                product_id: productId,
-                is_favorite: isCurrentlyFavorite ? 'true' : 'false'
-            };
-
-            try {
-                // Envía la solicitud al nuevo archivo toggle_favorito.php
-                const response = await fetch('toggle_favorito.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    const newStatus = result.is_favorite;
-
-                    // 1. Actualiza el atributo data-is-favorite
-                    toggleBtn.dataset.isFavorite = newStatus ? 'true' : 'false';
-
-                    // 2. Actualiza la apariencia y el texto
-                    if (newStatus) {
-                        toggleBtn.classList.add('active');
-                        toggleBtn.innerHTML = '❤️ Favorito';
-                        toggleBtn.title = 'Quitar de Favoritos';
-                    } else {
-                        toggleBtn.classList.remove('active');
-                        toggleBtn.innerHTML = '🤍 Añadir a Favoritos';
-                        toggleBtn.title = 'Añadir a Favoritos';
-                    }
-                } else {
-                    console.error('Error al actualizar favoritos:', result.message);
-                    alert('Error al actualizar favoritos.');
-                }
-
-            } catch (error) {
-                console.error('Error de conexión o servidor:', error);
-                alert('Hubo un problema al conectar con el servidor.');
-            }
-        });
-    }
-});
+// Lógica de avatar consolidada en el bloque principal de inicialización.
+// La lógica de favoritos se ha movido a la función global toggleFavorito(btn)
+// para ser compatible con el atributo onclick de producto.php.
 
 // ==================== MÚLTIPLES IMÁGENES PREVIEW ====================
 function initMultipleImagesUpload() {
@@ -1043,7 +1081,1077 @@ function changeMainImage(src, thumbnail) {
     }
 }
 
-// Inicializar en DOMContentLoaded
-document.addEventListener('DOMContentLoaded', () => {
-    initMultipleImagesUpload();
-});
+// ==================== ZOOM DE IMAGEN ====================
+let zoomModal = null;
+let currentZoomLevel = 1;
+let isDragging = false;
+let startX, startY, translateX = 0, translateY = 0;
+
+function initImageZoom() {
+    // Buscar imágenes con clase zoomable
+    const zoomableImages = document.querySelectorAll('.zoomable, .product-detail-image');
+
+    zoomableImages.forEach(img => {
+        img.style.cursor = 'zoom-in';
+        img.addEventListener('click', function () {
+            openZoomModal(this.src);
+        });
+    });
+}
+
+function openZoomModal(imageSrc) {
+    // Crear modal si no existe
+    if (!zoomModal) {
+        zoomModal = document.createElement('div');
+        zoomModal.className = 'zoom-modal';
+        zoomModal.id = 'zoomModal';
+
+        zoomModal.innerHTML = `
+            <span class="zoom-modal-close" onclick="closeZoomModal()">×</span>
+            <img class="zoom-modal-content" id="zoomImage" src="">
+            <div class="zoom-controls">
+                <button class="zoom-btn" onclick="zoomIn()">+</button>
+                <button class="zoom-btn" onclick="zoomReset()">⟲</button>
+                <button class="zoom-btn" onclick="zoomOut()">−</button>
+            </div>
+            <div class="zoom-hint">Pellizca para hacer zoom • Arrastra para mover</div>
+        `;
+
+        document.body.appendChild(zoomModal);
+
+        // Cerrar al hacer clic fuera de la imagen
+        zoomModal.addEventListener('click', function (e) {
+            if (e.target === zoomModal) {
+                closeZoomModal();
+            }
+        });
+
+        // Cerrar con tecla Escape
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && zoomModal.classList.contains('active')) {
+                closeZoomModal();
+            }
+        });
+
+        // Inicializar gestos táctiles
+        initTouchZoom();
+    }
+
+    // Configurar imagen
+    const zoomImage = document.getElementById('zoomImage');
+    zoomImage.src = imageSrc;
+
+    // Reset zoom
+    currentZoomLevel = 1;
+    translateX = 0;
+    translateY = 0;
+    updateZoomTransform();
+
+    // Mostrar modal
+    zoomModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeZoomModal() {
+    if (zoomModal) {
+        zoomModal.classList.remove('active');
+        document.body.style.overflow = '';
+        currentZoomLevel = 1;
+        translateX = 0;
+        translateY = 0;
+    }
+}
+
+function zoomIn() {
+    currentZoomLevel = Math.min(currentZoomLevel + 0.5, 4);
+    updateZoomTransform();
+}
+
+function zoomOut() {
+    currentZoomLevel = Math.max(currentZoomLevel - 0.5, 0.5);
+    updateZoomTransform();
+}
+
+function zoomReset() {
+    currentZoomLevel = 1;
+    translateX = 0;
+    translateY = 0;
+    updateZoomTransform();
+}
+
+function updateZoomTransform() {
+    const zoomImage = document.getElementById('zoomImage');
+    if (zoomImage) {
+        zoomImage.style.transform = `scale(${currentZoomLevel}) translate(${translateX}px, ${translateY}px)`;
+    }
+}
+
+function initTouchZoom() {
+    const zoomImage = document.getElementById('zoomImage');
+    if (!zoomImage) return;
+
+    let initialDistance = 0;
+    let initialZoom = 1;
+
+    // Pinch zoom
+    zoomImage.addEventListener('touchstart', function (e) {
+        if (e.touches.length === 2) {
+            initialDistance = getDistance(e.touches[0], e.touches[1]);
+            initialZoom = currentZoomLevel;
+        } else if (e.touches.length === 1 && currentZoomLevel > 1) {
+            isDragging = true;
+            startX = e.touches[0].clientX - translateX;
+            startY = e.touches[0].clientY - translateY;
+        }
+    }, { passive: true });
+
+    zoomImage.addEventListener('touchmove', function (e) {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const currentDistance = getDistance(e.touches[0], e.touches[1]);
+            const scale = currentDistance / initialDistance;
+            currentZoomLevel = Math.min(Math.max(initialZoom * scale, 0.5), 4);
+            updateZoomTransform();
+        } else if (e.touches.length === 1 && isDragging && currentZoomLevel > 1) {
+            translateX = e.touches[0].clientX - startX;
+            translateY = e.touches[0].clientY - startY;
+            updateZoomTransform();
+        }
+    }, { passive: false });
+
+    zoomImage.addEventListener('touchend', function () {
+        isDragging = false;
+    }, { passive: true });
+
+    // Mouse drag para desktop
+    zoomImage.addEventListener('mousedown', function (e) {
+        if (currentZoomLevel > 1) {
+            isDragging = true;
+            startX = e.clientX - translateX;
+            startY = e.clientY - translateY;
+            zoomImage.style.cursor = 'grabbing';
+        }
+    });
+
+    zoomImage.addEventListener('mousemove', function (e) {
+        if (isDragging && currentZoomLevel > 1) {
+            translateX = e.clientX - startX;
+            translateY = e.clientY - startY;
+            updateZoomTransform();
+        }
+    });
+
+    zoomImage.addEventListener('mouseup', function () {
+        isDragging = false;
+        zoomImage.style.cursor = currentZoomLevel > 1 ? 'grab' : 'zoom-out';
+    });
+
+    zoomImage.addEventListener('mouseleave', function () {
+        isDragging = false;
+    });
+
+    // Zoom con rueda del mouse
+    zoomImage.addEventListener('wheel', function (e) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+            zoomIn();
+        } else {
+            zoomOut();
+        }
+    }, { passive: false });
+}
+
+function getDistance(touch1, touch2) {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Inicializar zoom y otras funcionalidades en DOMContentLoaded
+// Los inicializadores se han movido a la sección de INICIALIZACIÓN principal.
+
+// ==================== INFINITE SCROLL SYSTEM ====================
+
+/**
+ * Estado global del Infinite Scroll
+ */
+const infiniteScrollState = {
+    currentPage: 1,
+    isLoading: false,
+    hasMore: true,
+    totalProducts: 0,
+    filters: {
+        categoria: 0,
+        busqueda: '',
+        orden: 'newest'
+    }
+};
+
+/**
+ * Inicializar el sistema de Infinite Scroll
+ */
+function initInfiniteScroll() {
+    // Obtener filtros desde PHP (pasados via window.productFilters)
+    if (window.productFilters) {
+        infiniteScrollState.filters = window.productFilters;
+    }
+
+    // Limpiar cualquier estado guardado anterior para asegurar datos frescos
+    clearScrollState();
+
+    // Cargar la primera página de productos siempre desde el servidor
+    loadProducts(1, true);
+
+    // Configurar el observer para infinite scroll
+    setupInfiniteScrollObserver();
+
+    // También escuchar el evento de scroll como fallback
+    setupScrollListener();
+
+    // 🔍 Configurar filtros AJAX
+    setupAjaxFilters();
+}
+
+/**
+ * Configurar filtros AJAX (sin recargar página)
+ */
+function setupAjaxFilters() {
+    const searchInput = document.getElementById('searchInput');
+    const categoryFilter = document.getElementById('categoryFilter');
+    const sortFilter = document.getElementById('sortFilter');
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+
+    let searchTimeout;
+
+    // Búsqueda con debounce (espera a que el usuario deje de escribir)
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                infiniteScrollState.filters.busqueda = e.target.value.trim();
+                applyFilters();
+            }, 400); // Espera 400ms después de dejar de escribir
+        });
+
+        // También buscar al presionar Enter
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                clearTimeout(searchTimeout);
+                infiniteScrollState.filters.busqueda = e.target.value.trim();
+                applyFilters();
+            }
+        });
+    }
+
+    // Filtro de categoría
+    if (categoryFilter) {
+        categoryFilter.addEventListener('change', (e) => {
+            infiniteScrollState.filters.categoria = parseInt(e.target.value) || 0;
+            applyFilters();
+        });
+    }
+
+    // Filtro de ordenamiento
+    if (sortFilter) {
+        sortFilter.addEventListener('change', (e) => {
+            infiniteScrollState.filters.orden = e.target.value;
+            applyFilters();
+        });
+    }
+
+    // Botón limpiar filtros
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', () => {
+            // Resetear inputs
+            if (searchInput) searchInput.value = '';
+            if (categoryFilter) categoryFilter.value = '0';
+            if (sortFilter) sortFilter.value = 'newest';
+
+            // Resetear estado
+            infiniteScrollState.filters = {
+                categoria: 0,
+                busqueda: '',
+                orden: 'newest'
+            };
+
+            // Recargar productos
+            applyFilters();
+        });
+    }
+
+    // Mostrar/ocultar botón de limpiar según si hay filtros activos
+    updateClearFiltersButton();
+}
+
+/**
+ * Aplicar filtros y recargar productos
+ */
+function applyFilters() {
+    // Resetear paginación
+    infiniteScrollState.currentPage = 1;
+    infiniteScrollState.hasMore = true;
+
+    // Limpiar estado guardado
+    clearScrollState();
+
+    // Ocultar mensaje de fin
+    const noMoreProducts = document.getElementById('noMoreProducts');
+    if (noMoreProducts) noMoreProducts.style.display = 'none';
+
+    // Actualizar botón de limpiar
+    updateClearFiltersButton();
+
+    // Recargar productos
+    loadProducts(1, true);
+}
+
+/**
+ * Actualizar visibilidad del botón "Limpiar filtros"
+ */
+function updateClearFiltersButton() {
+    const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+    if (!clearFiltersBtn) return;
+
+    const hasFilters = infiniteScrollState.filters.categoria > 0 ||
+        infiniteScrollState.filters.busqueda.length > 0 ||
+        infiniteScrollState.filters.orden !== 'newest';
+
+    clearFiltersBtn.style.display = hasFilters ? 'inline-block' : 'none';
+}
+
+/**
+ * Verificar si los filtros actuales son los mismos que los guardados
+ */
+function isSameFilters(savedFilters) {
+    if (!savedFilters) return false;
+    return savedFilters.categoria === infiniteScrollState.filters.categoria &&
+        savedFilters.busqueda === infiniteScrollState.filters.busqueda &&
+        savedFilters.orden === infiniteScrollState.filters.orden;
+}
+
+/**
+ * Guardar estado del scroll antes de salir
+ */
+function setupBeforeUnload() {
+    // Guardar al hacer clic en cualquier enlace de producto
+    document.addEventListener('click', (e) => {
+        const productLink = e.target.closest('a[href*="producto.php"]');
+        if (productLink) {
+            saveScrollState();
+        }
+    });
+
+    // También guardar al usar el botón atrás/adelante
+    window.addEventListener('pagehide', () => {
+        saveScrollState();
+    });
+}
+
+/**
+ * Guardar el estado actual del scroll
+ */
+function saveScrollState() {
+    const productsGrid = document.getElementById('productsGrid');
+    if (!productsGrid) return;
+
+    const state = {
+        scrollY: window.scrollY,
+        currentPage: infiniteScrollState.currentPage,
+        hasMore: infiniteScrollState.hasMore,
+        totalProducts: infiniteScrollState.totalProducts,
+        filters: { ...infiniteScrollState.filters },
+        productsHTML: productsGrid.innerHTML,
+        timestamp: Date.now()
+    };
+
+    try {
+        sessionStorage.setItem('infiniteScrollState', JSON.stringify(state));
+    } catch (e) {
+        console.warn('No se pudo guardar el estado del scroll:', e);
+    }
+}
+
+/**
+ * Obtener el estado guardado del scroll
+ */
+function getScrollState() {
+    try {
+        const saved = sessionStorage.getItem('infiniteScrollState');
+        if (!saved) return null;
+
+        const state = JSON.parse(saved);
+
+        // Expirar después de 10 minutos
+        if (Date.now() - state.timestamp > 10 * 60 * 1000) {
+            clearScrollState();
+            return null;
+        }
+
+        return state;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Restaurar el estado guardado
+ */
+function restoreScrollState(state) {
+    const productsGrid = document.getElementById('productsGrid');
+    const skeletonGrid = document.getElementById('skeletonGrid');
+    const noMoreProducts = document.getElementById('noMoreProducts');
+
+    if (!productsGrid || !state.productsHTML) {
+        loadProducts(1, true);
+        return;
+    }
+
+    // Ocultar skeletons
+    if (skeletonGrid) skeletonGrid.style.display = 'none';
+
+    // Restaurar productos
+    productsGrid.innerHTML = state.productsHTML;
+    productsGrid.style.display = 'grid';
+
+    // Restaurar estado
+    infiniteScrollState.currentPage = state.currentPage;
+    infiniteScrollState.hasMore = state.hasMore;
+    infiniteScrollState.totalProducts = state.totalProducts;
+
+    // Mostrar mensaje de fin si aplica
+    if (!state.hasMore && noMoreProducts) {
+        noMoreProducts.style.display = 'block';
+    }
+
+    // Restaurar posición del scroll después de que el DOM se actualice
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            window.scrollTo({
+                top: state.scrollY,
+                behavior: 'instant'
+            });
+        });
+    });
+
+    // Limpiar el estado guardado para evitar restauraciones múltiples
+    // (se volverá a guardar al hacer clic en un producto)
+    clearScrollState();
+}
+
+/**
+ * Limpiar el estado guardado
+ */
+function clearScrollState() {
+    try {
+        sessionStorage.removeItem('infiniteScrollState');
+    } catch (e) {
+        // Ignorar errores
+    }
+}
+
+/**
+ * Configurar Intersection Observer para detectar cuando el usuario llega al final
+ */
+function setupInfiniteScrollObserver() {
+    const loadingMore = document.getElementById('loadingMore');
+    if (!loadingMore) return;
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && !infiniteScrollState.isLoading && infiniteScrollState.hasMore) {
+                loadMoreProducts();
+            }
+        });
+    }, {
+        rootMargin: '200px', // Cargar antes de llegar al final
+        threshold: 0.1
+    });
+
+    observer.observe(loadingMore);
+}
+
+/**
+ * Fallback: Listener de scroll tradicional
+ */
+function setupScrollListener() {
+    let scrollTimeout;
+
+    window.addEventListener('scroll', () => {
+        if (scrollTimeout) clearTimeout(scrollTimeout);
+
+        scrollTimeout = setTimeout(() => {
+            if (infiniteScrollState.isLoading || !infiniteScrollState.hasMore) return;
+
+            const scrollPosition = window.innerHeight + window.scrollY;
+            const documentHeight = document.documentElement.scrollHeight;
+
+            // Cargar más cuando estamos al 80% del scroll
+            if (scrollPosition >= documentHeight * 0.8) {
+                loadMoreProducts();
+            }
+        }, 100);
+    }, { passive: true });
+}
+
+/**
+ * Cargar más productos (siguiente página)
+ */
+function loadMoreProducts() {
+    if (infiniteScrollState.isLoading || !infiniteScrollState.hasMore) return;
+
+    infiniteScrollState.currentPage++;
+    loadProducts(infiniteScrollState.currentPage, false);
+}
+
+/**
+ * Cargar productos desde la API
+ * @param {number} page - Número de página
+ * @param {boolean} isInitial - Si es la carga inicial (muestra skeletons)
+ */
+async function loadProducts(page, isInitial = false) {
+    const productsGrid = document.getElementById('productsGrid');
+    const skeletonGrid = document.getElementById('skeletonGrid');
+    const loadingMore = document.getElementById('loadingMore');
+    const noProducts = document.getElementById('noProducts');
+    const noMoreProducts = document.getElementById('noMoreProducts');
+
+    if (!productsGrid) return;
+
+    // Marcar como cargando
+    infiniteScrollState.isLoading = true;
+
+    // Mostrar indicadores de carga
+    if (isInitial) {
+        skeletonGrid.style.display = 'grid';
+        productsGrid.style.display = 'none';
+    } else {
+        loadingMore.style.display = 'flex';
+    }
+
+    try {
+        // Construir URL con filtros
+        const params = new URLSearchParams({
+            page: page,
+            limit: 12,
+            orden: infiniteScrollState.filters.orden || 'newest'
+        });
+
+        if (infiniteScrollState.filters.categoria > 0) {
+            params.append('categoria', infiniteScrollState.filters.categoria);
+        }
+
+        if (infiniteScrollState.filters.busqueda) {
+            params.append('busqueda', infiniteScrollState.filters.busqueda);
+        }
+
+        const response = await fetch(`api/productos.php?${params.toString()}`);
+        const data = await response.json();
+
+        if (data.success) {
+            const productos = data.productos;
+            const pagination = data.pagination;
+
+            // Actualizar estado
+            infiniteScrollState.hasMore = pagination.has_more;
+            infiniteScrollState.totalProducts = pagination.total;
+
+            if (isInitial) {
+                // Limpiar grid y ocultar skeletons
+                productsGrid.innerHTML = '';
+                skeletonGrid.style.display = 'none';
+                productsGrid.style.display = 'grid';
+            }
+
+            // Renderizar productos
+            if (productos.length > 0) {
+                renderProducts(productos, productsGrid, !isInitial);
+                noProducts.style.display = 'none';
+            } else if (isInitial) {
+                // No hay productos
+                noProducts.style.display = 'block';
+            }
+
+            // Mostrar mensaje de fin si no hay más productos
+            if (!infiniteScrollState.hasMore && infiniteScrollState.totalProducts > 0) {
+                noMoreProducts.style.display = 'block';
+            }
+
+            // Inicializar lazy loading para las nuevas imágenes
+            initLazyLoadImages();
+
+        } else {
+            console.error('Error al cargar productos:', data.error);
+            if (isInitial) {
+                skeletonGrid.style.display = 'none';
+                noProducts.style.display = 'block';
+            }
+        }
+
+    } catch (error) {
+        console.error('Error de conexión al cargar productos:', error);
+        if (isInitial) {
+            skeletonGrid.style.display = 'none';
+            noProducts.style.display = 'block';
+        }
+    } finally {
+        infiniteScrollState.isLoading = false;
+        loadingMore.style.display = 'none';
+    }
+}
+
+/**
+ * Renderizar productos en el grid
+ * @param {Array} productos - Array de productos
+ * @param {HTMLElement} container - Contenedor del grid
+ * @param {boolean} isNewLoad - Si son productos nuevos (para animación)
+ */
+function renderProducts(productos, container, isNewLoad = false) {
+    productos.forEach((producto, index) => {
+        const card = createProductCard(producto);
+
+        // Agregar clases de animación
+        if (isNewLoad) {
+            card.classList.add('new-load');
+            card.style.animationDelay = `${index * 0.05}s`;
+        } else {
+            card.classList.add('fade-in');
+        }
+
+        container.appendChild(card);
+    });
+}
+
+/**
+ * Crear el HTML de una tarjeta de producto
+ * @param {Object} producto - Datos del producto
+ * @returns {HTMLElement} - Elemento de la tarjeta
+ */
+function createProductCard(producto) {
+    const card = document.createElement('div');
+    card.className = 'product-card';
+
+    // Determinar clase de condición
+    let conditionClass = '';
+    const integridad = producto.integridad.toLowerCase();
+    if (integridad === 'nuevo') {
+        conditionClass = 'condition-nuevo';
+    } else if (integridad === 'usado') {
+        conditionClass = 'condition-usado';
+    }
+
+    card.innerHTML = `
+        <a href="producto.php?id=${producto.id}">
+            <img src="${escapeHtml(producto.imagen)}" 
+                 alt="${escapeHtml(producto.nombre)}"
+                 class="product-image"
+                 loading="lazy"
+                 onerror="this.src='images/placeholder.jpg'">
+            <div class="product-info">
+                <h3 class="product-name">${escapeHtml(producto.nombre)}</h3>
+                <p class="product-price">${producto.precio_formateado}</p>
+                <p class="product-seller">Vendedor: ${escapeHtml(producto.vendedor_nombre)}</p>
+                <p class="product-category">${escapeHtml(producto.categoria_nombre)} - ${escapeHtml(producto.subcategoria_nombre)}</p>
+                <span class="product-condition ${conditionClass}">${escapeHtml(producto.integridad)}</span>
+                <span class="product-stock">Disponibles: ${producto.disponibles}</span>
+            </div>
+        </a>
+    `;
+
+    return card;
+}
+
+/**
+ * Inicializar lazy loading para imágenes (usando Intersection Observer)
+ */
+function initLazyLoadImages() {
+    // Usamos el atributo native loading="lazy" que ya está en las imágenes
+    // Pero agregamos un observer para animar cuando se carguen
+
+    const images = document.querySelectorAll('.product-image:not(.observed)');
+
+    const imageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                img.classList.add('observed');
+
+                // Cuando la imagen carga, agregar clase para animación
+                if (img.complete) {
+                    img.classList.add('loaded');
+                } else {
+                    img.addEventListener('load', () => {
+                        img.classList.add('loaded');
+                    });
+                }
+
+                imageObserver.unobserve(img);
+            }
+        });
+    }, {
+        rootMargin: '50px',
+        threshold: 0.01
+    });
+
+    images.forEach(img => {
+        imageObserver.observe(img);
+    });
+}
+
+/**
+ * Recargar productos (por ejemplo, al cambiar filtros via JavaScript)
+ */
+function reloadProducts() {
+    infiniteScrollState.currentPage = 1;
+    infiniteScrollState.hasMore = true;
+
+    const productsGrid = document.getElementById('productsGrid');
+    const noMoreProducts = document.getElementById('noMoreProducts');
+
+    if (productsGrid) productsGrid.innerHTML = '';
+    if (noMoreProducts) noMoreProducts.style.display = 'none';
+
+    loadProducts(1, true);
+}
+
+// Exponer funciones globalmente si es necesario
+window.reloadProducts = reloadProducts;
+window.infiniteScrollState = infiniteScrollState;
+
+/* ==================== GALERÍA DE IMÁGENES MEJORADA ==================== */
+
+/**
+ * Estado de la galería
+ */
+const galleryState = {
+    currentIndex: 0,
+    totalImages: 0,
+    images: [],
+    touchStartX: 0,
+    touchEndX: 0,
+    isLightboxOpen: false
+};
+
+/**
+ * Inicializar la galería de imágenes
+ */
+function initProductGallery() {
+    // Verificar si existe la galería
+    const galleryContainer = document.getElementById('galleryContainer');
+    if (!galleryContainer) return;
+
+    // Obtener imágenes del array global
+    if (window.galleryImages && window.galleryImages.length > 0) {
+        galleryState.images = window.galleryImages;
+        galleryState.totalImages = window.galleryImages.length;
+    } else {
+        return;
+    }
+
+    // Configurar event listeners
+    setupGalleryNavigation();
+    setupGalleryThumbnails();
+    setupGalleryFullscreen();
+    setupGalleryKeyboard();
+    setupGalleryTouch();
+
+    // Mostrar indicador de swipe en móvil
+    if (galleryState.totalImages > 1 && window.innerWidth <= 600) {
+        const galleryMain = document.querySelector('.gallery-main');
+        if (galleryMain) {
+            galleryMain.classList.add('show-swipe-hint');
+            setTimeout(() => galleryMain.classList.remove('show-swipe-hint'), 3000);
+        }
+    }
+}
+
+/**
+ * Configurar navegación con flechas
+ */
+function setupGalleryNavigation() {
+    const prevBtn = document.getElementById('galleryPrev');
+    const nextBtn = document.getElementById('galleryNext');
+
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => navigateGallery(-1));
+    }
+
+    if (nextBtn) {
+        nextBtn.addEventListener('click', () => navigateGallery(1));
+    }
+}
+
+/**
+ * Navegar entre imágenes
+ */
+function navigateGallery(direction) {
+    const newIndex = galleryState.currentIndex + direction;
+
+    if (newIndex >= 0 && newIndex < galleryState.totalImages) {
+        goToSlide(newIndex);
+    } else if (newIndex < 0) {
+        goToSlide(galleryState.totalImages - 1); // Loop al final
+    } else {
+        goToSlide(0); // Loop al inicio
+    }
+}
+
+/**
+ * Ir a una imagen específica
+ */
+function goToSlide(index) {
+    galleryState.currentIndex = index;
+
+    // Actualizar slides
+    const slides = document.querySelectorAll('.gallery-slide');
+    slides.forEach((slide, i) => {
+        slide.classList.toggle('active', i === index);
+    });
+
+    // Actualizar miniaturas
+    const thumbs = document.querySelectorAll('.gallery-thumb');
+    thumbs.forEach((thumb, i) => {
+        thumb.classList.toggle('active', i === index);
+    });
+
+    // Actualizar contador
+    const counter = document.getElementById('currentSlide');
+    if (counter) {
+        counter.textContent = index + 1;
+    }
+
+    // Si el lightbox está abierto, actualizar también
+    if (galleryState.isLightboxOpen) {
+        updateLightboxImage(index);
+    }
+}
+
+/**
+ * Configurar clics en miniaturas
+ */
+function setupGalleryThumbnails() {
+    const thumbs = document.querySelectorAll('.gallery-thumb');
+
+    thumbs.forEach(thumb => {
+        thumb.addEventListener('click', () => {
+            const index = parseInt(thumb.getAttribute('data-index'));
+            goToSlide(index);
+        });
+
+        // Soporte de teclado
+        thumb.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                const index = parseInt(thumb.getAttribute('data-index'));
+                goToSlide(index);
+            }
+        });
+    });
+}
+
+/**
+ * Configurar pantalla completa (Lightbox)
+ */
+function setupGalleryFullscreen() {
+    const fullscreenBtn = document.getElementById('galleryFullscreenBtn');
+    const lightbox = document.getElementById('galleryLightbox');
+    const closeBtn = document.getElementById('lightboxClose');
+    const prevBtn = document.getElementById('lightboxPrev');
+    const nextBtn = document.getElementById('lightboxNext');
+    const galleryImages = document.querySelectorAll('.gallery-image');
+
+    // Abrir lightbox con botón
+    if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', openLightbox);
+    }
+
+    // Abrir lightbox al hacer clic en imagen principal
+    galleryImages.forEach(img => {
+        img.addEventListener('click', openLightbox);
+    });
+
+    // Cerrar lightbox
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeLightbox);
+    }
+
+    // Cerrar con clic fuera
+    if (lightbox) {
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) {
+                closeLightbox();
+            }
+        });
+    }
+
+    // Navegación en lightbox
+    if (prevBtn) {
+        prevBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigateGallery(-1);
+        });
+    }
+
+    if (nextBtn) {
+        nextBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigateGallery(1);
+        });
+    }
+
+    // Puntos del lightbox
+    const dots = document.querySelectorAll('.lightbox-dot');
+    dots.forEach(dot => {
+        dot.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(dot.getAttribute('data-index'));
+            goToSlide(index);
+        });
+    });
+}
+
+/**
+ * Abrir lightbox
+ */
+function openLightbox() {
+    const lightbox = document.getElementById('galleryLightbox');
+    if (!lightbox) return;
+
+    galleryState.isLightboxOpen = true;
+    lightbox.classList.add('active');
+    document.body.style.overflow = 'hidden';
+
+    updateLightboxImage(galleryState.currentIndex);
+
+    // Setup touch para lightbox
+    setupLightboxTouch();
+}
+
+/**
+ * Cerrar lightbox
+ */
+function closeLightbox() {
+    const lightbox = document.getElementById('galleryLightbox');
+    if (!lightbox) return;
+
+    galleryState.isLightboxOpen = false;
+    lightbox.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+/**
+ * Actualizar imagen del lightbox
+ */
+function updateLightboxImage(index) {
+    const lightboxImage = document.getElementById('lightboxImage');
+    const lightboxCounter = document.getElementById('lightboxCurrentSlide');
+    const dots = document.querySelectorAll('.lightbox-dot');
+
+    if (lightboxImage && galleryState.images[index]) {
+        lightboxImage.src = galleryState.images[index];
+        lightboxImage.alt = `Imagen ${index + 1}`;
+    }
+
+    if (lightboxCounter) {
+        lightboxCounter.textContent = index + 1;
+    }
+
+    dots.forEach((dot, i) => {
+        dot.classList.toggle('active', i === index);
+    });
+}
+
+/**
+ * Configurar navegación con teclado
+ */
+function setupGalleryKeyboard() {
+    document.addEventListener('keydown', (e) => {
+        // Solo si el lightbox está abierto o estamos en la página del producto
+        const galleryContainer = document.getElementById('galleryContainer');
+        if (!galleryContainer) return;
+
+        switch (e.key) {
+            case 'ArrowLeft':
+                navigateGallery(-1);
+                break;
+            case 'ArrowRight':
+                navigateGallery(1);
+                break;
+            case 'Escape':
+                if (galleryState.isLightboxOpen) {
+                    closeLightbox();
+                }
+                break;
+        }
+    });
+}
+
+/**
+ * Configurar gestos táctiles (swipe)
+ */
+function setupGalleryTouch() {
+    const galleryMain = document.querySelector('.gallery-main');
+    if (!galleryMain) return;
+
+    galleryMain.addEventListener('touchstart', handleTouchStart, { passive: true });
+    galleryMain.addEventListener('touchmove', handleTouchMove, { passive: true });
+    galleryMain.addEventListener('touchend', handleTouchEnd, { passive: true });
+}
+
+/**
+ * Configurar touch para lightbox
+ */
+function setupLightboxTouch() {
+    const lightboxContent = document.querySelector('.lightbox-content');
+    if (!lightboxContent) return;
+
+    lightboxContent.addEventListener('touchstart', handleTouchStart, { passive: true });
+    lightboxContent.addEventListener('touchmove', handleTouchMove, { passive: true });
+    lightboxContent.addEventListener('touchend', handleTouchEnd, { passive: true });
+}
+
+function handleTouchStart(e) {
+    galleryState.touchStartX = e.changedTouches[0].screenX;
+}
+
+function handleTouchMove(e) {
+    galleryState.touchEndX = e.changedTouches[0].screenX;
+}
+
+function handleTouchEnd() {
+    const swipeThreshold = 50;
+    const diff = galleryState.touchStartX - galleryState.touchEndX;
+
+    if (Math.abs(diff) > swipeThreshold) {
+        if (diff > 0) {
+            // Swipe izquierda -> siguiente
+            navigateGallery(1);
+        } else {
+            // Swipe derecha -> anterior
+            navigateGallery(-1);
+        }
+    }
+
+    // Reset
+    galleryState.touchStartX = 0;
+    galleryState.touchEndX = 0;
+}
+
+// La galería se inicializa en la sección principal de INICIALIZACIÓN.
+
+/**
+ * Cambiar la imagen principal en la página de detalle de producto
+ */
+function changeMainImage(src, thumb) {
+    const mainImg = document.getElementById('mainProductImage');
+    if (mainImg) {
+        mainImg.src = src;
+    }
+
+    // Actualizar clase activa en miniaturas
+    const thumbnails = document.querySelectorAll('.thumbnail');
+    thumbnails.forEach(t => t.classList.remove('active'));
+    if (thumb) {
+        thumb.classList.add('active');
+    }
+}

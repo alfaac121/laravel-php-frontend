@@ -1,13 +1,12 @@
 <?php
 require_once 'config.php';
-require_once 'api/api_client.php';
 forceLightTheme();
 
 $error = '';
 $success = '';
 
-// Si ya tiene sesión con token válido, redirigir
-if (hasValidToken()) {
+// Si ya tiene sesión, redirigir
+if (isLoggedIn()) {
     header("Location: index.php");
     exit();
 }
@@ -66,46 +65,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (strlen($password) < 8) {
             $error = "La contraseña debe tener al menos 8 caracteres";
         } else {
-            // Llamar a la API para iniciar el registro
-            $response = apiIniciarRegistro(
-                $email,
-                $password,
-                $password_confirm,
-                $nombre,
-                $descripcion,
-                $link,
-                $imagenNombre
-            );
-
-            if ($response['success'] && isset($response['data']['cuenta_id'])) {
-                // Guardar datos en sesión para la verificación
-                $_SESSION['registro_cuenta_id'] = $response['data']['cuenta_id'];
-                $_SESSION['registro_datos_encriptados'] = $response['data']['datosEncriptados'] ?? '';
-                $_SESSION['registro_expira'] = $response['data']['expira_en'] ?? '';
-                $_SESSION['registro_email'] = $email;
-                $_SESSION['registro_imagen'] = $imagenNombre;
+            $conn = getDBConnection();
+            
+            // Verificar si el correo ya existe
+            $stmt = $conn->prepare("SELECT id FROM cuentas WHERE email = ?");
+            $stmt->bind_param("s", $email);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            if ($result->num_rows > 0) {
+                $error = "Este correo ya está registrado";
+                $stmt->close();
                 
-                // Redirigir a la página de verificación
-                header("Location: verificar_registro.php");
-                exit();
-            } else {
-                // Eliminar imagen subida si falló el registro
+                // Eliminar imagen subida si el registro falla
                 if (!empty($imagenNombre) && file_exists('assets/images/avatars/' . $imagenNombre)) {
                     unlink('assets/images/avatars/' . $imagenNombre);
                 }
+            } else {
+                $stmt->close();
                 
-                // Manejar errores de la API
-                if (isset($response['data']['message'])) {
-                    $error = $response['data']['message'];
-                } elseif (isset($response['data']['errors'])) {
-                    $errors = $response['data']['errors'];
-                    $error = is_array($errors) ? implode(', ', array_map(function($e) { 
-                        return is_array($e) ? $e[0] : $e; 
-                    }, $errors)) : $errors;
-                } else {
-                    $error = "Error al iniciar el registro. Intenta de nuevo.";
+                // Hash de la contraseña
+                $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+                
+                // Iniciar transacción
+                $conn->begin_transaction();
+                
+                try {
+                    // Insertar cuenta
+                    $stmt = $conn->prepare("
+                        INSERT INTO cuentas (email, password, notifica_correo, notifica_push, uso_datos)
+                        VALUES (?, ?, 0, 0, 1)
+                    ");
+                    $stmt->bind_param("ss", $email, $passwordHash);
+                    $stmt->execute();
+                    $cuentaId = $conn->insert_id;
+                    $stmt->close();
+                    
+                    // Insertar usuario
+                    $stmt = $conn->prepare("
+                        INSERT INTO usuarios (cuenta_id, nickname, imagen, descripcion, link, rol_id, estado_id)
+                        VALUES (?, ?, ?, ?, ?, 3, 1)
+                    ");
+                    $stmt->bind_param("issss", $cuentaId, $nombre, $imagenNombre, $descripcion, $link);
+                    $stmt->execute();
+                    $stmt->close();
+                    
+                    // Confirmar transacción
+                    $conn->commit();
+                    
+                    $conn->close();
+                    
+                    // Redirigir al login con mensaje de éxito
+                    header("Location: login.php?registered=1");
+                    exit();
+                    
+                } catch (Exception $e) {
+                    // Revertir transacción
+                    $conn->rollback();
+                    $error = "Error al crear la cuenta. Intenta de nuevo.";
+                    
+                    // Eliminar imagen subida si el registro falla
+                    if (!empty($imagenNombre) && file_exists('assets/images/avatars/' . $imagenNombre)) {
+                        unlink('assets/images/avatars/' . $imagenNombre);
+                    }
                 }
             }
+            
+            $conn->close();
         }
     }
 }
@@ -223,7 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="form-group">
                     <label for="password">Contraseña *</label>
                     <input type="password" id="password" name="password" required minlength="8">
-                    <small>Mínimo 8 caracteres, debe incluir mayúsculas, minúsculas y números</small>
+                    <small>Mínimo 8 caracteres</small>
                 </div>
                 <div class="form-group">
                     <label for="password_confirm">Confirmar Contraseña *</label>
@@ -242,7 +268,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button type="submit" class="btn-primary">Registrarse</button>
             </form>
             <p class="auth-link">¿Ya tienes cuenta? <a href="login.php">Inicia sesión aquí</a></p>
-            <p class="auth-link"><small>Recibirás un código de verificación en tu correo</small></p>
         </div>
     </div>
     <script src="script.js"></script>
@@ -310,4 +335,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </script>
 </body>
 </html>
-
