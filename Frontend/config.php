@@ -8,7 +8,7 @@
 define('DB_HOST', 'localhost');
 define('DB_USER', 'root');
 define('DB_PASS', '');
-define('DB_NAME', 'tu_mercado_sena');
+define('DB_NAME', 'tu_mercado_sena_2');
 
 // Iniciar sesión
 if (session_status() === PHP_SESSION_NONE) {

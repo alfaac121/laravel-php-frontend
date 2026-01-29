@@ -29,7 +29,7 @@ SET time_zone = "+00:00";
 
 CREATE TABLE `tokens_de_sesion` (
   `id` bigint(20) UNSIGNED NOT NULL,
-  `cuenta_id` bigint(20) UNSIGNED NOT NULL,
+  `cuenta_id` int(10) UNSIGNED NOT NULL,
   `dispositivo` enum('web','movil','desktop') NOT NULL,
   `jti` varchar(255) NOT NULL,
   `ultimo_uso` timestamp NULL DEFAULT NULL,
